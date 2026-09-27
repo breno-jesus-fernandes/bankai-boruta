@@ -26,16 +26,44 @@ METHODS = (
     "bankai_boruta",
     "borutapy",
     "borutapy_bankai_xrf",
+    "borutapy_lightgbm",
     "boruta_fru",
     "borutashap_gini",
     "borutashap_shap",
+    "borutashap_lightgbm_gain",
+    "borutashap_lightgbm_shap",
     "python_orchestration_xrf",
 )
-SELECTORS = ("bankai_boruta", "borutapy", "borutapy_bankai_xrf", "boruta_fru", "borutashap_gini", "borutashap_shap")
+LIGHTGBM_METHODS = ("borutapy_lightgbm", "borutashap_lightgbm_gain", "borutashap_lightgbm_shap")
+SELECTORS = (
+    "bankai_boruta", "borutapy", "borutapy_bankai_xrf", "borutapy_lightgbm",
+    "boruta_fru", "borutashap_gini", "borutashap_shap",
+    "borutashap_lightgbm_gain", "borutashap_lightgbm_shap",
+)
 QUALITY_SEEDS = (11, 29, 47, *random.Random(20_260_927).sample(range(1_000, 1_000_000), 27))
 BENCHMARK_ROWS = 10_000
 BENCHMARK_FEATURES = 100
 PERFORMANCE_DIMENSIONS = ((BENCHMARK_ROWS, BENCHMARK_FEATURES),)
+
+
+def _lightgbm_parameters(trees: int, seed: int, features: int) -> dict:
+    """Shared deterministic LightGBM configuration for the matched selector pair."""
+    return {
+        "n_estimators": trees,
+        "max_depth": 16,
+        "num_leaves": 31,
+        "learning_rate": 0.1,
+        "colsample_bytree": min(1.0, (features ** 0.5) / features),
+        "subsample": 1.0,
+        "subsample_freq": 0,
+        "class_weight": "balanced",
+        "importance_type": "gain",
+        "random_state": seed,
+        "n_jobs": 1,
+        "deterministic": True,
+        "force_col_wise": True,
+        "verbosity": -1,
+    }
 
 
 def _case(scenario: str, seed: int, n: int, p: int):
@@ -113,7 +141,7 @@ def worker(args):
         selected = np.flatnonzero(model.support_)
         n_iter = model.n_iter_
         extra.update({"stop_reason": model.stop_reason_, "copied_bytes": model.diagnostics_["copied_bytes"]})
-    elif args.method in {"borutapy", "borutapy_bankai_xrf"}:
+    elif args.method in {"borutapy", "borutapy_bankai_xrf", "borutapy_lightgbm"}:
         from boruta import BorutaPy
 
         if args.method == "borutapy_bankai_xrf":
@@ -124,6 +152,10 @@ def worker(args):
                 n_jobs=1, random_state=args.seed, class_weight="balanced",
                 importance_type="gain",
             )
+        elif args.method == "borutapy_lightgbm":
+            from lightgbm import LGBMClassifier
+
+            estimator = LGBMClassifier(**_lightgbm_parameters(args.trees, args.seed, args.features))
         else:
             estimator = RandomForestClassifier(
                 n_estimators=args.trees, max_depth=16, max_features="sqrt",
@@ -146,6 +178,13 @@ def worker(args):
             extra.update({
                 "comparison_role": "same BorutaPy controller/settings as sklearn baseline, with Bankai XRF forest and Gini gain importance",
                 "engine_revision": args.xrf_revision,
+            })
+        elif args.method == "borutapy_lightgbm":
+            extra.update({
+                "comparison_role": "matched LightGBM gain-importance baseline for Boruta-Shap; only selector controller differs in the gain pair",
+                "estimator": "LightGBM.LGBMClassifier",
+                "estimator_config": _lightgbm_parameters(args.trees, args.seed, args.features),
+                "importance_method": "lightgbm_gain",
             })
     elif args.method == "boruta_fru":
         import polars as pl
@@ -170,7 +209,10 @@ def worker(args):
             "decision_values": sorted(set(decisions.tolist())),
             "actual_iteration_count_exposed": False,
         })
-    elif args.method in {"borutashap_gini", "borutashap_shap"}:
+    elif args.method in {
+        "borutashap_gini", "borutashap_shap",
+        "borutashap_lightgbm_gain", "borutashap_lightgbm_shap",
+    }:
         import pandas as pd
         import numpy as np
         import scipy.stats
@@ -204,16 +246,22 @@ def worker(args):
                 else:
                     self.shap_values = np.abs(values).mean(axis=0)
 
-        importance = "gini" if args.method.endswith("gini") else "shap"
-        shap_model = RandomForestClassifier(
-            n_estimators=args.trees, max_depth=16, max_features="sqrt",
-            n_jobs=1, random_state=args.seed,
-        )
+        is_lightgbm = args.method.startswith("borutashap_lightgbm_")
+        importance = "shap" if args.method.endswith("_shap") else "gini"
+        if is_lightgbm:
+            from lightgbm import LGBMClassifier
+
+            shap_model = LGBMClassifier(**_lightgbm_parameters(args.trees, args.seed, args.features))
+        else:
+            shap_model = RandomForestClassifier(
+                n_estimators=args.trees, max_depth=16, max_features="sqrt",
+                n_jobs=1, random_state=args.seed,
+            )
         prime_seconds = 0.0
-        if importance == "gini":
-            # Original Boruta-Shap checks for fitted feature_importances_ in
-            # __init__, then refits inside fit(). Include that required fit in
-            # the end-to-end timing instead of hiding the overhead.
+        if importance == "gini" or is_lightgbm:
+            # Boruta-Shap reads feature_importances_ in __init__. LightGBM
+            # exposes it only after fit; include the required prime fit for
+            # both gain and SHAP modes in the end-to-end timing.
             prime_started = time.perf_counter()
             shap_model.fit(X, y)
             prime_seconds = time.perf_counter() - prime_started
@@ -238,10 +286,15 @@ def worker(args):
         selected = np.asarray([i for i, name in enumerate(names) if name in accepted])
         n_iter = int(model.history_hits.shape[0] - 1)
         extra.update({
-            "importance_method": importance,
+            "importance_method": "lightgbm_gain" if is_lightgbm and importance == "gini" else importance,
+            "estimator": "LightGBM.LGBMClassifier" if is_lightgbm else "sklearn.RandomForestClassifier",
+            "estimator_config": _lightgbm_parameters(args.trees, args.seed, args.features) if is_lightgbm else {
+                "n_estimators": args.trees, "max_depth": 16, "max_features": "sqrt",
+                "random_state": args.seed, "n_jobs": 1,
+            },
             "accepted_count": len(model.accepted),
             "tentative_count": len(model.tentative),
-            "gini_required_prime_fit_seconds": prime_seconds,
+            "required_prime_fit_seconds": prime_seconds,
         })
     elif args.method == "python_orchestration_xrf":
         from bankai_random_forest import BankaiRandomForestClassifier
@@ -288,7 +341,7 @@ def worker(args):
         "n_iter": n_iter,
         "fit_seconds": elapsed,
         "input_setup_seconds": setup_seconds,
-        "end_to_end_seconds": elapsed + setup_seconds + extra.get("gini_required_prime_fit_seconds", 0.0),
+        "end_to_end_seconds": elapsed + setup_seconds + extra.get("required_prime_fit_seconds", 0.0),
         "rss_before_fit_bytes": rss_before,
         "rss_after_fit_bytes": rss_after,
         "rss_delta_bytes": rss_after - rss_before,
@@ -356,16 +409,18 @@ def _markdown(result):
         "- O orçamento de qualidade foi reduzido para três seeds e duas iterações por cenário após medir Boruta-Shap/SHAP em 10k; serve como checagem exploratória e não substitui o gate estatístico de 30 seeds.",
         "- O tempo de SHAP em 10k linhas motivou um orçamento de apenas duas iterações; esse resultado mede custo inicial, não convergência do seletor.",
         "- A fase de desempenho mede apenas tempo e memória; seleções após duas iterações não são métricas de qualidade e aparecem como traço no JSON bruto.",
-        "- Tempo de fit exclui geração dos dados/imports. O total inclui criação de DataFrame quando exigida e o ajuste preliminar obrigatório de Boruta-Shap Gini.",
+        "- Tempo de fit exclui geração dos dados/imports. O total inclui criação de DataFrame quando exigida e o pré-fit necessário pelo construtor Boruta-Shap (Gini ou LightGBM).",
         "- RSS delta é a diferença de RSS do processo antes/depois do `fit`; não é pico nativo nem medida isolada de buffers transitórios. Valores negativos indicam que o RSS final ficou abaixo do inicial, não alocação negativa.",
         "- Boruta-Shap com Gini e SHAP aparece separado: SHAP muda o método de atribuição e não é uma comparação equivalente de importance.",
         "- `sklearn_rf` e `bankai_xrf_rf` são controles de floresta sem Boruta. `python_orchestration_xrf` mede um loop de shadow/importância em Python e não é Boruta estatístico.",
         "- `borutapy` e `borutapy_bankai_xrf` compartilham exatamente o controller, parâmetros, dados e importância Gini; essa é a comparação controlada do estimador sklearn contra o motor XRF Bankai.",
+        "- Par principal controlado: `borutapy_lightgbm` versus `borutashap_lightgbm_gain` usa o mesmo LightGBM, importância gain, dados, seed e orçamento; muda o controller Boruta. `borutashap_lightgbm_shap` mantém o LightGBM e muda explicitamente a atribuição para SHAP.",
+        "- O LightGBM pareado usa max_depth=16, num_leaves=31, feature fraction √p/p, class_weight=balanced, uma thread e modo determinístico. Os demais seletores ficam como baselines do ecossistema, com seus motores/atribuições próprios; não são tratados como comparação controlada de estimador.",
         "- `sklearn_rf` e `bankai_xrf_rf` escolhem top-2 somente para contextualizar o controle de floresta no cenário misto; essa seleção não é um resultado Boruta.",
         "- `boruta_fru` usa `fru-arrow` com o crate upstream `xrf` 0.1.7. `bankai_xrf_rf` e o diagnóstico Python usam o fork Bankai Random Forest no commit indicado.",
         "- `boruta_fru` mede controller + `fru-arrow` + XRF integrado. Não separa o custo do XRF upstream usando o mesmo controller Bankai, portanto não isola somente o efeito do motor.",
         "",
-        "## Desempenho e seleção",
+        "## Desempenho e checagem de seleção",
         "",
         "| Fase | Implementação | Cenário | Dados | Runs | Mediana total (s) | Mediana fit (s) | RSS delta mediano (MiB) | Precisão média | Recall médio | Falsos positivos | Features selecionadas | Iterações médias |",
         "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
@@ -385,19 +440,20 @@ def _markdown(result):
         "",
         "## Leitura e limites",
         "",
-        "As métricas de precisão/recall usam os sinais sintéticos conhecidos e somente features confirmadas/aceitas. No cenário nulo, precisão/recall valem 1 quando nenhuma feature é selecionada; falsos positivos mostram a contagem diretamente. Implementações com políticas estatísticas distintas podem produzir seleções diferentes mesmo com seed/configuração nominal iguais. As medições são exploratórias deste host; a conclusão não é uma alegação universal de liderança.",
+        "As métricas de precisão/recall usam os sinais sintéticos conhecidos e somente features confirmadas/aceitas. Com duas iterações, todos os métodos deixaram os sinais como não selecionados; esta checagem não mede qualidade/convergência e serve somente para validar a execução. No cenário nulo, precisão/recall valem 1 quando nenhuma feature é selecionada; falsos positivos mostram a contagem diretamente. Implementações com políticas estatísticas distintas podem produzir seleções diferentes mesmo com seed/configuração nominal iguais. As medições são exploratórias deste host; a conclusão não é uma alegação universal de liderança.",
         "",
         "Os resultados completos por execução estão em [`m7_comparisons.json`](m7_comparisons.json). Testes, revisões e limitações de release estão em [`m7_validation_2026-09-27.json`](m7_validation_2026-09-27.json). O harness está em [`run_m7_comparisons.py`](../run_m7_comparisons.py).",
         "",
         "## Dependências e revisões",
         "",
         f"- BorutaPy: {metadata['borutapy_version']}; boruta-fru: {metadata['boruta_fru_version']}; Boruta-Shap: {metadata['borutashap_version']}",
+        f"- LightGBM: {metadata['lightgbm_version']}",
         f"- pandas {metadata['pandas_version']}; Polars {metadata['polars_version']}; SciPy {metadata['scipy_version']}; SHAP {metadata['shap_version']}",
         "- Boruta-Shap original requer shims locais no processo descartável: `np.NaN`, `scipy.stats.binom_test` e redução da saída SHAP moderna (n×features×classes) a mean-absolute por feature. O harness preserva SHAP como atribuição, mas o patch de compatibilidade é explicitamente distinto do pacote upstream sem patch.",
         f"- bankai-boruta: {metadata['bankai_boruta_revision']}; bankai-random-forest: {metadata['xrf_revision']}",
         "- A execução é compatibilidade Python 3.12 para incluir boruta-fru; o projeto continua validado também em Python 3.11.",
         "- `boruta_fru` publica seus resultados com decisões por feature; o número de iterações efetivamente executadas não está exposto no API público e é omitido.",
-        "- Referências: [boruta-fru](https://docs.rs/boruta-fru/0.1.0), [XRF 0.1.7](https://docs.rs/xrf/0.1.7), [BorutaPy](https://github.com/scikit-learn-contrib/boruta_py), [Boruta-Shap original](https://github.com/Ekeany/Boruta-Shap).",
+        "- Referências: [LightGBM LGBMClassifier](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.LGBMClassifier.html), [boruta-fru](https://docs.rs/boruta-fru/0.1.0), [XRF 0.1.7](https://docs.rs/xrf/0.1.7), [BorutaPy](https://github.com/scikit-learn-contrib/boruta_py), [Boruta-Shap original](https://github.com/Ekeany/Boruta-Shap).",
         "",
     ]
     return "\n".join(lines)
@@ -500,10 +556,13 @@ def main():
         "borutapy_version": md.version("Boruta"),
         "boruta_fru_version": md.version("boruta-fru"),
         "borutashap_version": md.version("BorutaShap"),
+        "lightgbm_version": md.version("lightgbm"),
         "polars_version": md.version("polars"),
         "pandas_version": md.version("pandas"),
         "scipy_version": md.version("scipy"),
         "shap_version": md.version("shap"),
+        "controlled_lightgbm_gain_pair": ["borutapy_lightgbm", "borutashap_lightgbm_gain"],
+        "lightgbm_shap_variant": "borutashap_lightgbm_shap",
     }
     result = {"metadata": metadata, "summary": _summarize(records), "runs": records}
     args.output_json.parent.mkdir(parents=True, exist_ok=True)

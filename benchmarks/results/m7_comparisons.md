@@ -11,65 +11,83 @@ sklearn 1.9.1 · NumPy 2.5.3 · macOS arm64
 - O orçamento de qualidade foi reduzido para três seeds e duas iterações por cenário após medir Boruta-Shap/SHAP em 10k; serve como checagem exploratória e não substitui o gate estatístico de 30 seeds.
 - O tempo de SHAP em 10k linhas motivou um orçamento de apenas duas iterações; esse resultado mede custo inicial, não convergência do seletor.
 - A fase de desempenho mede apenas tempo e memória; seleções após duas iterações não são métricas de qualidade e aparecem como traço no JSON bruto.
-- Tempo de fit exclui geração dos dados/imports. O total inclui criação de DataFrame quando exigida e o ajuste preliminar obrigatório de Boruta-Shap Gini.
+- Tempo de fit exclui geração dos dados/imports. O total inclui criação de DataFrame quando exigida e o pré-fit necessário pelo construtor Boruta-Shap (Gini ou LightGBM).
 - RSS delta é a diferença de RSS do processo antes/depois do `fit`; não é pico nativo nem medida isolada de buffers transitórios. Valores negativos indicam que o RSS final ficou abaixo do inicial, não alocação negativa.
 - Boruta-Shap com Gini e SHAP aparece separado: SHAP muda o método de atribuição e não é uma comparação equivalente de importance.
 - `sklearn_rf` e `bankai_xrf_rf` são controles de floresta sem Boruta. `python_orchestration_xrf` mede um loop de shadow/importância em Python e não é Boruta estatístico.
 - `borutapy` e `borutapy_bankai_xrf` compartilham exatamente o controller, parâmetros, dados e importância Gini; essa é a comparação controlada do estimador sklearn contra o motor XRF Bankai.
+- Par principal controlado: `borutapy_lightgbm` versus `borutashap_lightgbm_gain` usa o mesmo LightGBM, importância gain, dados, seed e orçamento; muda o controller Boruta. `borutashap_lightgbm_shap` mantém o LightGBM e muda explicitamente a atribuição para SHAP.
+- O LightGBM pareado usa max_depth=16, num_leaves=31, feature fraction √p/p, class_weight=balanced, uma thread e modo determinístico. Os demais seletores ficam como baselines do ecossistema, com seus motores/atribuições próprios; não são tratados como comparação controlada de estimador.
 - `sklearn_rf` e `bankai_xrf_rf` escolhem top-2 somente para contextualizar o controle de floresta no cenário misto; essa seleção não é um resultado Boruta.
 - `boruta_fru` usa `fru-arrow` com o crate upstream `xrf` 0.1.7. `bankai_xrf_rf` e o diagnóstico Python usam o fork Bankai Random Forest no commit indicado.
 - `boruta_fru` mede controller + `fru-arrow` + XRF integrado. Não separa o custo do XRF upstream usando o mesmo controller Bankai, portanto não isola somente o efeito do motor.
 
-## Desempenho e seleção
+## Desempenho e checagem de seleção
 
 | Fase | Implementação | Cenário | Dados | Runs | Mediana total (s) | Mediana fit (s) | RSS delta mediano (MiB) | Precisão média | Recall médio | Falsos positivos | Features selecionadas | Iterações médias |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| performance | bankai_boruta | mixed | 10,000×100 | 5 | 1.1590 | 1.1590 | 13.34 | — | — | — | — | 2.0 |
-| performance | bankai_xrf_rf | mixed | 10,000×100 | 5 | 0.4460 | 0.4460 | 19.48 | — | — | — | — | — |
-| performance | boruta_fru | mixed | 10,000×100 | 5 | 0.8019 | 0.7975 | 16.84 | — | — | — | — | — |
-| performance | borutapy | mixed | 10,000×100 | 5 | 1.2184 | 1.2184 | 39.23 | — | — | — | — | 2.0 |
-| performance | borutapy_bankai_xrf | mixed | 10,000×100 | 5 | 1.3030 | 1.3030 | 74.22 | — | — | — | — | 2.0 |
-| performance | borutashap_gini | mixed | 10,000×100 | 5 | 1.7375 | 1.3024 | 54.58 | — | — | — | — | 2.0 |
-| performance | borutashap_shap | mixed | 10,000×100 | 5 | 33.2356 | 33.2329 | 6.39 | — | — | — | — | 2.0 |
-| performance | python_orchestration_xrf | mixed | 10,000×100 | 5 | 1.3351 | 1.3351 | 89.64 | — | — | — | — | 2.0 |
-| performance | sklearn_rf | mixed | 10,000×100 | 5 | 0.4418 | 0.4418 | 6.14 | — | — | — | — | — |
-| quality | bankai_boruta | correlated | 10,000×100 | 3 | 2.2676 | 2.2676 | 14.64 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | bankai_boruta | mixed | 10,000×100 | 3 | 2.3295 | 2.3295 | 13.55 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | bankai_boruta | null | 10,000×100 | 3 | 2.4027 | 2.4027 | 13.06 | 1.000 | 1.000 | 0.00 | 0.00 | 2.0 |
-| quality | bankai_boruta | xor | 10,000×100 | 3 | 2.3451 | 2.3451 | 12.95 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | boruta_fru | correlated | 10,000×100 | 3 | 1.6319 | 1.6271 | 17.42 | 0.000 | 0.000 | 0.00 | 0.00 | — |
-| quality | boruta_fru | mixed | 10,000×100 | 3 | 1.7231 | 1.7185 | 17.89 | 0.000 | 0.000 | 0.00 | 0.00 | — |
-| quality | boruta_fru | null | 10,000×100 | 3 | 1.8283 | 1.8235 | 17.72 | 1.000 | 1.000 | 0.00 | 0.00 | — |
-| quality | boruta_fru | xor | 10,000×100 | 3 | 1.7316 | 1.7267 | 13.55 | 0.000 | 0.000 | 0.00 | 0.00 | — |
-| quality | borutapy | correlated | 10,000×100 | 3 | 2.6222 | 2.6222 | 39.55 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutapy | mixed | 10,000×100 | 3 | 2.4519 | 2.4519 | 40.12 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutapy | null | 10,000×100 | 3 | 2.5407 | 2.5407 | 40.12 | 1.000 | 1.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutapy | xor | 10,000×100 | 3 | 2.5203 | 2.5203 | 40.31 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutapy_bankai_xrf | correlated | 10,000×100 | 3 | 2.4896 | 2.4896 | 76.39 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutapy_bankai_xrf | mixed | 10,000×100 | 3 | 2.5372 | 2.5372 | 75.81 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutapy_bankai_xrf | null | 10,000×100 | 3 | 2.5577 | 2.5577 | 75.95 | 1.000 | 1.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutapy_bankai_xrf | xor | 10,000×100 | 3 | 2.5141 | 2.5141 | 75.89 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutashap_gini | correlated | 10,000×100 | 3 | 3.3795 | 2.5300 | 54.64 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutashap_gini | mixed | 10,000×100 | 3 | 3.5787 | 2.6089 | 24.19 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutashap_gini | null | 10,000×100 | 3 | 3.4094 | 2.4890 | 58.86 | 1.000 | 1.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutashap_gini | xor | 10,000×100 | 3 | 3.3252 | 2.4803 | 58.86 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutashap_shap | correlated | 10,000×100 | 3 | 46.1353 | 46.1309 | -88.05 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutashap_shap | mixed | 10,000×100 | 3 | 71.0872 | 71.0845 | 10.86 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutashap_shap | null | 10,000×100 | 3 | 86.4462 | 86.4424 | -100.94 | 1.000 | 1.000 | 0.00 | 0.00 | 2.0 |
-| quality | borutashap_shap | xor | 10,000×100 | 3 | 81.7949 | 81.7917 | -54.84 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| performance | bankai_boruta | mixed | 10,000×100 | 5 | 1.1707 | 1.1707 | 13.20 | — | — | — | — | 2.0 |
+| performance | bankai_xrf_rf | mixed | 10,000×100 | 5 | 0.4406 | 0.4406 | 19.42 | — | — | — | — | — |
+| performance | boruta_fru | mixed | 10,000×100 | 5 | 0.8302 | 0.8123 | 18.34 | — | — | — | — | — |
+| performance | borutapy | mixed | 10,000×100 | 5 | 1.2138 | 1.2138 | 39.16 | — | — | — | — | 2.0 |
+| performance | borutapy_bankai_xrf | mixed | 10,000×100 | 5 | 1.2868 | 1.2868 | 74.33 | — | — | — | — | 2.0 |
+| performance | borutapy_lightgbm | mixed | 10,000×100 | 5 | 0.4908 | 0.4908 | 108.11 | — | — | — | — | 2.0 |
+| performance | borutashap_gini | mixed | 10,000×100 | 5 | 1.7217 | 1.2795 | 54.58 | — | — | — | — | 2.0 |
+| performance | borutashap_lightgbm_gain | mixed | 10,000×100 | 5 | 0.6386 | 0.5177 | 93.25 | — | — | — | — | 2.0 |
+| performance | borutashap_lightgbm_shap | mixed | 10,000×100 | 5 | 0.7903 | 0.6536 | 109.62 | — | — | — | — | 2.0 |
+| performance | borutashap_shap | mixed | 10,000×100 | 5 | 32.5970 | 32.5942 | -61.72 | — | — | — | — | 2.0 |
+| performance | python_orchestration_xrf | mixed | 10,000×100 | 5 | 1.3151 | 1.3151 | 89.62 | — | — | — | — | 2.0 |
+| performance | sklearn_rf | mixed | 10,000×100 | 5 | 0.4372 | 0.4372 | 6.11 | — | — | — | — | — |
+| quality | bankai_boruta | correlated | 10,000×100 | 3 | 2.2028 | 2.2028 | 14.58 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | bankai_boruta | mixed | 10,000×100 | 3 | 2.3028 | 2.3028 | 13.56 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | bankai_boruta | null | 10,000×100 | 3 | 2.3522 | 2.3522 | 13.19 | 1.000 | 1.000 | 0.00 | 0.00 | 2.0 |
+| quality | bankai_boruta | xor | 10,000×100 | 3 | 2.3219 | 2.3219 | 13.22 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | boruta_fru | correlated | 10,000×100 | 3 | 1.4943 | 1.4899 | 20.27 | 0.000 | 0.000 | 0.00 | 0.00 | — |
+| quality | boruta_fru | mixed | 10,000×100 | 3 | 1.6007 | 1.5912 | 18.80 | 0.000 | 0.000 | 0.00 | 0.00 | — |
+| quality | boruta_fru | null | 10,000×100 | 3 | 1.6537 | 1.6495 | 18.09 | 1.000 | 1.000 | 0.00 | 0.00 | — |
+| quality | boruta_fru | xor | 10,000×100 | 3 | 1.6802 | 1.6756 | 17.78 | 0.000 | 0.000 | 0.00 | 0.00 | — |
+| quality | borutapy | correlated | 10,000×100 | 3 | 2.4824 | 2.4824 | 39.62 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutapy | mixed | 10,000×100 | 3 | 2.4068 | 2.4068 | 40.06 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutapy | null | 10,000×100 | 3 | 2.5167 | 2.5167 | 40.16 | 1.000 | 1.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutapy | xor | 10,000×100 | 3 | 2.4137 | 2.4137 | 40.20 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutapy_bankai_xrf | correlated | 10,000×100 | 3 | 2.2119 | 2.2119 | 76.36 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutapy_bankai_xrf | mixed | 10,000×100 | 3 | 2.2381 | 2.2381 | 75.44 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutapy_bankai_xrf | null | 10,000×100 | 3 | 2.2922 | 2.2922 | 75.95 | 1.000 | 1.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutapy_bankai_xrf | xor | 10,000×100 | 3 | 2.2472 | 2.2472 | 76.20 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutapy_lightgbm | correlated | 10,000×100 | 3 | 0.5069 | 0.5069 | 108.16 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutapy_lightgbm | mixed | 10,000×100 | 3 | 0.5097 | 0.5097 | 108.12 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutapy_lightgbm | null | 10,000×100 | 3 | 0.5141 | 0.5141 | 108.33 | 1.000 | 1.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutapy_lightgbm | xor | 10,000×100 | 3 | 0.5064 | 0.5064 | 107.67 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_gini | correlated | 10,000×100 | 3 | 3.3503 | 2.4824 | 55.25 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_gini | mixed | 10,000×100 | 3 | 3.3270 | 2.4812 | 58.78 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_gini | null | 10,000×100 | 3 | 3.3906 | 2.5152 | 58.86 | 1.000 | 1.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_gini | xor | 10,000×100 | 3 | 3.3580 | 2.5091 | 58.78 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_lightgbm_gain | correlated | 10,000×100 | 3 | 0.6836 | 0.5558 | 93.27 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_lightgbm_gain | mixed | 10,000×100 | 3 | 0.6852 | 0.5583 | 93.53 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_lightgbm_gain | null | 10,000×100 | 3 | 0.6796 | 0.5520 | 93.19 | 1.000 | 1.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_lightgbm_gain | xor | 10,000×100 | 3 | 0.6772 | 0.5495 | 91.31 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_lightgbm_shap | correlated | 10,000×100 | 3 | 0.9318 | 0.8050 | 110.41 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_lightgbm_shap | mixed | 10,000×100 | 3 | 0.9435 | 0.8154 | 110.11 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_lightgbm_shap | null | 10,000×100 | 3 | 0.9647 | 0.8379 | 110.36 | 1.000 | 1.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_lightgbm_shap | xor | 10,000×100 | 3 | 0.9581 | 0.8328 | 108.27 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_shap | correlated | 10,000×100 | 3 | 46.0938 | 46.0907 | 51.22 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_shap | mixed | 10,000×100 | 3 | 71.7638 | 71.7610 | -42.86 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_shap | null | 10,000×100 | 3 | 87.1645 | 87.1612 | -11.00 | 1.000 | 1.000 | 0.00 | 0.00 | 2.0 |
+| quality | borutashap_shap | xor | 10,000×100 | 3 | 82.6032 | 82.5998 | -40.95 | 0.000 | 0.000 | 0.00 | 0.00 | 2.0 |
 
 ## Leitura e limites
 
-As métricas de precisão/recall usam os sinais sintéticos conhecidos e somente features confirmadas/aceitas. No cenário nulo, precisão/recall valem 1 quando nenhuma feature é selecionada; falsos positivos mostram a contagem diretamente. Implementações com políticas estatísticas distintas podem produzir seleções diferentes mesmo com seed/configuração nominal iguais. As medições são exploratórias deste host; a conclusão não é uma alegação universal de liderança.
+As métricas de precisão/recall usam os sinais sintéticos conhecidos e somente features confirmadas/aceitas. Com duas iterações, todos os métodos deixaram os sinais como não selecionados; esta checagem não mede qualidade/convergência e serve somente para validar a execução. No cenário nulo, precisão/recall valem 1 quando nenhuma feature é selecionada; falsos positivos mostram a contagem diretamente. Implementações com políticas estatísticas distintas podem produzir seleções diferentes mesmo com seed/configuração nominal iguais. As medições são exploratórias deste host; a conclusão não é uma alegação universal de liderança.
 
 Os resultados completos por execução estão em [`m7_comparisons.json`](m7_comparisons.json). Testes, revisões e limitações de release estão em [`m7_validation_2026-09-27.json`](m7_validation_2026-09-27.json). O harness está em [`run_m7_comparisons.py`](../run_m7_comparisons.py).
 
 ## Dependências e revisões
 
 - BorutaPy: 0.4.3; boruta-fru: 0.1.0; Boruta-Shap: 1.0.17
+- LightGBM: 4.7.0
 - pandas 3.0.6; Polars 1.44.2; SciPy 1.18.1; SHAP 0.52.0
 - Boruta-Shap original requer shims locais no processo descartável: `np.NaN`, `scipy.stats.binom_test` e redução da saída SHAP moderna (n×features×classes) a mean-absolute por feature. O harness preserva SHAP como atribuição, mas o patch de compatibilidade é explicitamente distinto do pacote upstream sem patch.
 - bankai-boruta: 6ca70d3af749676cbcb6db1c45c7a6525f9e492f; bankai-random-forest: b29a7fc07fc36405a17c7739aaefef99baa72d79
 - A execução é compatibilidade Python 3.12 para incluir boruta-fru; o projeto continua validado também em Python 3.11.
 - `boruta_fru` publica seus resultados com decisões por feature; o número de iterações efetivamente executadas não está exposto no API público e é omitido.
-- Referências: [boruta-fru](https://docs.rs/boruta-fru/0.1.0), [XRF 0.1.7](https://docs.rs/xrf/0.1.7), [BorutaPy](https://github.com/scikit-learn-contrib/boruta_py), [Boruta-Shap original](https://github.com/Ekeany/Boruta-Shap).
+- Referências: [LightGBM LGBMClassifier](https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.LGBMClassifier.html), [boruta-fru](https://docs.rs/boruta-fru/0.1.0), [XRF 0.1.7](https://docs.rs/xrf/0.1.7), [BorutaPy](https://github.com/scikit-learn-contrib/boruta_py), [Boruta-Shap original](https://github.com/Ekeany/Boruta-Shap).

@@ -426,11 +426,13 @@ copiados. `tracemalloc` sozinho não mede as alocações Rust.
 **Riscos:** diferenças de importância/stopping invalidarem comparações,
 oversubscription e resultados dominados por conversão ou compilação.
 
-- [x] Comparações executadas exclusivamente em 10k×100: 126 resultados finais,
+- [x] Comparações executadas exclusivamente em 10k×100: 180 resultados finais,
   incluindo 5 repetições de desempenho, warmups e qualidade exploratória com
-  3 seeds e 2 iterações em quatro cenários para seis seletores. Esta checagem
-  não satisfaz o gate de 30 seeds; o relatório explicita a limitação. Suítes
-  locais aprovadas: Boruta 84 Python (3.11 e 3.13),
+  3 seeds e 2 iterações em quatro cenários para nove seletores. O par BorutaPy
+  vs Boruta-Shap com LightGBM gain usa configuração idêntica de estimador; a
+  variante SHAP é reportada separadamente. A checagem de qualidade não atende
+  ao gate de 30 seeds e não mede convergência neste orçamento. Suítes locais
+  aprovadas: Boruta 85 Python (3.11 e 3.13),
   40 Rust; Random Forest 147 Python e 20 Rust. O Clippy estrito do projeto irmão
   permanece com lints anteriores ao benchmark. Evidências em
   [`m7_validation_2026-09-27.json`](../benchmarks/results/m7_validation_2026-09-27.json).
@@ -468,7 +470,8 @@ registro de pacotes não é pré-requisito e exige configuração própria de re
 Para esta rodada, a pedido do mantenedor, usar exclusivamente 10k×100. Os
 datasets de 1k, 100k e alta dimensionalidade ficam fora desta matriz. O relatório distingue
 as métricas de floresta isolada, BorutaPy, Boruta-fru, Boruta-Shap com Gini/SHAP,
-o seletor Bankai e um diagnóstico de orquestração Python. Não tratar
+BorutaPy e Boruta-Shap pareados com LightGBM, o seletor Bankai e um diagnóstico
+de orquestração Python. Não tratar
 `sklearn.inspection.permutation_importance` em dados distintos como equivalente
 à importância OOB; explicitar diferenças de importância e controller. A amostra
 de qualidade com três seeds e duas iterações é preliminar e não atende ao gate

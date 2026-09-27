@@ -7,14 +7,14 @@
     "python_boruta_3_13": "3.13.1"
   },
   "benchmark": {
-    "final_records": 126,
-    "warmups": 9,
-    "performance_runs": 45,
-    "quality_runs": 72,
+    "final_records": 180,
+    "warmups": 12,
+    "performance_runs": 60,
+    "quality_runs": 108,
     "performance_max_rows": 10000,
     "quality_rows": 10000,
     "quality_seeds_per_scenario_per_selector": 3,
-    "selectors": 6,
+    "selectors": 9,
     "synthetic_scenarios": [
       "mixed",
       "null",
@@ -34,12 +34,17 @@
       ]
     ],
     "quality_iterations": 2,
-    "methods": 9
+    "methods": 12,
+    "lightgbm_version": "4.7.0",
+    "controlled_lightgbm_gain_pair": [
+      "borutapy_lightgbm",
+      "borutashap_lightgbm_gain"
+    ]
   },
   "tests": {
     "bankai_boruta_rust": "40 passed",
-    "bankai_boruta_python_3_11": "84 passed",
-    "bankai_boruta_python_3_13": "84 passed",
+    "bankai_boruta_python_3_11": "85 passed",
+    "bankai_boruta_python_3_13": "85 passed",
     "bankai_random_forest_rust": "20 passed",
     "bankai_random_forest_python_3_11": "147 passed"
   },
@@ -57,10 +62,12 @@
     "bankai_random_forest": "b29a7fc07fc36405a17c7739aaefef99baa72d79"
   },
   "limits": [
-    "All benchmark records use 10,000 rows and 100 features; the previous 1k performance rows were removed from the published comparison.",
-    "Performance uses five repetitions and two iterations. The quality cross-check is exploratory (three seeds, two iterations) and does not satisfy the 30-seed statistical gate.",
-    "Boruta-Shap/SHAP quality cases at 10k were measured at up to 89.7 seconds each; the reduced exploratory budget keeps all methods in the comparison without a multi-hour SHAP run.",
-    "Quality metrics at two iterations do not establish selector convergence; performance comparisons are exploratory host measurements and not a universal leadership claim.",
+    "All benchmark records use 10,000 rows and 100 features; no multi-size dataset matrix is included.",
+    "Performance uses five repetitions, one dataset, two iterations and twelve methods; results are a same-host snapshot, not a universal leadership claim.",
+    "The controlled LightGBM gain pair uses BorutaPy and Boruta-Shap with the same LightGBM 4.7.0 configuration, importance type, data, seed and iteration/tree budgets; selector controllers differ.",
+    "Boruta-Shap with LightGBM SHAP keeps the same estimator configuration but changes attribution; comparison against gain methods is not attribution-equivalent.",
+    "Quality cross-check uses three seeds and two iterations. All methods leave signals unselected at this budget, so these records validate execution only and do not assess selection quality or convergence.",
+    "Boruta-Shap/RandomForest/SHAP remains a contextual ecosystem baseline; LightGBM SHAP quality cases are substantially faster on this host.",
     "GitHub Actions cross-platform results remain pending.",
     "Strict Clippy on the sibling XRF fork remains blocked by existing lints and was not fixed as part of the benchmark task."
   ]

@@ -9,6 +9,7 @@ from benchmarks.run_m7_comparisons import _case
 from benchmarks.run_m7_comparisons import QUALITY_SEEDS
 from benchmarks.run_m7_comparisons import METHODS
 from benchmarks.run_m7_comparisons import SELECTORS
+from benchmarks.run_m7_comparisons import LIGHTGBM_METHODS, _lightgbm_parameters
 from benchmarks.run_m7_comparisons import BENCHMARK_ROWS, BENCHMARK_FEATURES, PERFORMANCE_DIMENSIONS
 from benchmarks.datasets import make_boruta_case
 
@@ -79,7 +80,8 @@ def test_m7_markdown_states_quality_and_performance_share_ten_thousand_rows():
             "borutapy_version": "0.4.3", "boruta_fru_version": "0.1.0",
             "borutashap_version": "1.0.17", "pandas_version": "3.0.6",
             "polars_version": "1.44.2", "scipy_version": "1.18.1",
-            "shap_version": "0.52.0", "bankai_boruta_revision": "abc",
+            "shap_version": "0.52.0", "lightgbm_version": "4.7.0",
+            "bankai_boruta_revision": "abc",
             "xrf_revision": "def",
         },
         "summary": [],
@@ -89,12 +91,41 @@ def test_m7_markdown_states_quality_and_performance_share_ten_thousand_rows():
     assert "não há matriz multi-dataset" in markdown
     assert "1k×20" not in markdown
     assert "não alocação negativa" in markdown
+    assert "borutapy_lightgbm` versus `borutashap_lightgbm_gain" in markdown
+    assert "feature fraction √p/p" in markdown
+    assert "não mede qualidade/convergência" in markdown
 
 
 def test_m7_has_a_paired_sklearn_and_bankai_forest_borutapy_comparison():
     assert "borutapy" in METHODS
     assert "borutapy_bankai_xrf" in METHODS
     assert "borutapy_bankai_xrf" in SELECTORS
+
+
+def test_lightgbm_comparison_has_a_matched_gain_pair_and_shap_variant():
+    assert {
+        "borutapy_lightgbm",
+        "borutashap_lightgbm_gain",
+        "borutashap_lightgbm_shap",
+    } <= set(LIGHTGBM_METHODS)
+    assert set(LIGHTGBM_METHODS) <= set(METHODS)
+    assert set(LIGHTGBM_METHODS) <= set(SELECTORS)
+    assert _lightgbm_parameters(trees=8, seed=47, features=100) == {
+        "n_estimators": 8,
+        "max_depth": 16,
+        "num_leaves": 31,
+        "learning_rate": 0.1,
+        "colsample_bytree": 0.1,
+        "subsample": 1.0,
+        "subsample_freq": 0,
+        "class_weight": "balanced",
+        "importance_type": "gain",
+        "random_state": 47,
+        "n_jobs": 1,
+        "deterministic": True,
+        "force_col_wise": True,
+        "verbosity": -1,
+    }
 
 
 def test_m7_worker_rejects_inputs_above_ten_thousand_rows():
@@ -130,6 +161,7 @@ def test_m7_markdown_has_result_links_and_scope_disclaimers():
             "borutapy_version": "0.4.3",
             "boruta_fru_version": "0.1.0",
             "borutashap_version": "1.0.17",
+            "lightgbm_version": "4.7.0",
             "pandas_version": "3.0.6",
             "polars_version": "1.44.2",
             "scipy_version": "1.18.1",
