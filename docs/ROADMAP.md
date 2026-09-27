@@ -362,7 +362,8 @@ precoces irreversíveis e multiplicação do consumo por threads.
 
 ## M6 — Polars, sklearn e ciclo de vida
 
-**Status:** pendente.
+**Status:** em andamento; contrato sklearn e ingestão Polars por cópia validados,
+mas importação Arrow sem cópia ainda é uma limitação aberta.
 
 **Objetivo:** fechar interoperabilidade, pipelines e serialização compacta.
 
@@ -380,10 +381,14 @@ ou florestas. Permitir a alocação da saída selecionada de `transform`.
 **Riscos:** conversões ocultas no exportador ou na validação sklearn e vazamento
 de informação ao selecionar features antes da validação cruzada.
 
-- [ ] NumPy obrigatório e Polars opcional, com contratos documentados.
-- [ ] Exemplos incluem seleção dentro de Pipeline.
-- [ ] Serialização compacta e sem reconstrução de floresta.
-- [ ] Verificações concluídas, roadmap atualizado, commit e push realizados.
+- [x] NumPy obrigatório e Polars opcional; Polars exige `input_mode="copy"` e
+  o teste verifica que a materialização está contabilizada.
+- [x] Testes cobrem seleção em `Pipeline`, `clone`, nomes, refit removendo
+  nomes antigos e pickle sem reter `X`, `y` ou floresta.
+- [ ] Importar buffers Arrow/Polars sem conversão para NumPy; limitação descrita
+  em [`docs/limitations/M6-arrow-zero-copy.md`](limitations/M6-arrow-zero-copy.md).
+- [ ] Serialização compacta e sem reconstrução de floresta verificada em wheel.
+- [ ] Verificações finais, roadmap atualizado, commit e push de conclusão.
 
 **Commit:** `feat: add polars and sklearn selector integration`
 

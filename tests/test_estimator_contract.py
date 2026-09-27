@@ -259,3 +259,67 @@ def test_fit_crosses_into_native_code_once_for_the_entire_iteration_loop(monkeyp
     BankaiBoruta(n_estimators=12, max_iter=3, random_state=1).fit(X, y)
 
     assert calls == 1
+
+
+def test_fitted_selector_is_pickleable_without_retaining_training_data():
+    import pickle
+
+    import numpy as np
+
+    rng = np.random.default_rng(17)
+    y = np.tile([0, 1], 32)
+    X = np.column_stack([y + rng.normal(0, 0.02, y.size), rng.normal(size=y.size)])
+    fitted = BankaiBoruta(
+        n_estimators=64, max_iter=8, alpha=0.05, random_state=4
+    ).fit(X, y)
+    restored = pickle.loads(pickle.dumps(fitted))
+
+    assert restored.decision_.tolist() == fitted.decision_.tolist()
+    assert restored.transform(X).shape == (64, fitted.support_.sum())
+    assert not any(key in vars(restored) for key in ("X", "y", "forest_", "training_data_"))
+
+
+def test_refit_updates_feature_names_and_selector_works_in_pipeline():
+    import numpy as np
+    from sklearn.pipeline import Pipeline
+
+    class NamedMatrix:
+        def __init__(self, values, columns):
+            self.values = values
+            self.columns = columns
+
+        def __array__(self, dtype=None):
+            return np.asarray(self.values, dtype=dtype)
+
+    rng = np.random.default_rng(88)
+    y = np.tile([0, 1], 40)
+    X_values = np.column_stack([y + rng.normal(0, 0.03, y.size), rng.normal(size=y.size)])
+    X = NamedMatrix(X_values, ["signal", "noise"])
+    selector = BankaiBoruta(n_estimators=28, max_iter=8, random_state=7, input_mode="copy")
+    selector.fit(X, y)
+    assert selector.get_feature_names_out().tolist() == [
+        name for name, selected in zip(X.columns, selector.get_support()) if selected
+    ]
+    selector.fit(X_values, y)
+    assert not hasattr(selector, "feature_names_in_")
+
+    plain_pipeline = Pipeline([("select", BankaiBoruta(n_estimators=28, max_iter=8, random_state=7))])
+    transformed = plain_pipeline.fit_transform(X_values, y)
+    assert transformed.shape[0] == y.size
+
+
+def test_polars_dataframe_requires_and_uses_explicit_copy_mode():
+    pl = pytest.importorskip("polars")
+    import numpy as np
+
+    y = np.tile([0, 1], 32)
+    X = pl.DataFrame({"signal": y.astype(float), "noise": np.arange(y.size, dtype=float)})
+    with pytest.raises(ValueError, match="zero_copy"):
+        BankaiBoruta(n_estimators=8, max_iter=1).fit(X, y)
+
+    fitted = BankaiBoruta(
+        n_estimators=8, max_iter=1, input_mode="copy", random_state=2
+    ).fit(X, y)
+    assert fitted.n_features_in_ == 2
+    assert fitted.feature_names_in_.tolist() == ["signal", "noise"]
+    assert fitted.diagnostics_["copied_bytes"] >= X.shape[0] * X.shape[1] * 8
