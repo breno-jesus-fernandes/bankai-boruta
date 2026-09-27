@@ -5,4 +5,5 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+bankai-forest-core = { git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "6b0649f" }
 thiserror.workspace = true

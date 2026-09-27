@@ -189,7 +189,9 @@ ledger não escolhe decisões estatísticas ainda; isso será coberto pelo TDD d
 
 ## M2 — Núcleo Rust compartilhado
 
-**Status:** pendente.
+**Status:** concluído em 2026-09-27. O crate `bankai-forest-core` foi extraído
+e enviado no commit `6b0649f` à branch `codex/shared-core-extraction` do
+repositório bankai-random-forest; este projeto fixa exatamente essa revisão.
 
 **Objetivo:** extrair o motor sem PyO3 e sem duplicar o algoritmo da floresta.
 
@@ -207,11 +209,26 @@ no caminho de descarte de árvores já existente.
 **Riscos:** regressões de treino/importância, lifetimes e limites `Send`/`Sync`,
 além de acoplamento entre publicações dos dois projetos.
 
-- [ ] Crate compartilhado sem dependência de Python.
-- [ ] Suítes dos dois projetos aprovadas.
-- [ ] Alteração do motor commitada e enviada ao seu remoto verificado.
-- [ ] Boruta fixa a revisão publicada, sem caminhos absolutos.
-- [ ] Roadmap atualizado, commit e push do Boruta realizados.
+- [x] `bankai-forest-core` contém `DenseInput`, tipos de importância e XRF
+  reexportado, sem dependência de Python; o binding existente reexporta
+  `dense` para manter os caminhos internos da API.
+- [x] O agregador de permutation importance compartilha os rótulos por `Arc`;
+  teste verifica identidade de alocação em vez de confiar apenas em RSS.
+- [x] Testes do crate provam validação, treino de floresta sem Python e
+  importância OOB; a suíte Python do motor passou (147 testes, 2 avisos
+  numéricos já esperados em `log(0)`).
+- [x] Boruta fixa a revisão Git `6b0649f4` e testa treino/importância do crate
+  através da fronteira real de dependência entre repositórios.
+- [x] `cargo test --workspace`, formatação dos arquivos novos e Clippy do core
+  passaram. Clippy precisou suprimir três lints preexistentes no fork XRF
+  (`assign_op_pattern`, `too_many_arguments`, `needless_range_loop`).
+- [x] Alteração do motor commitada e enviada; roadmap Boruta atualizado.
+
+**Limitação transferida para M3:** `DenseInput::training` ainda aceita
+`Vec<f64>` próprio. A extração torna o motor reutilizável, mas não implementa
+zero-copy de NumPy/Arrow nem reduz a cópia inicial da matriz.
+
+- [x] Commit e push do checkpoint Boruta realizados.
 
 **Commit:** `refactor: extract shared native forest core`
 
