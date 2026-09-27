@@ -1,0 +1,55 @@
+{
+  "date": "2026-09-27",
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "python": "3.11.11",
+  "validation": {
+    "cargo_test_workspace": "passed; 40 tests",
+    "cargo_clippy_workspace_all_targets_deny_warnings": "passed",
+    "cargo_fmt": "passed",
+    "git_diff_check": "passed",
+    "python_pytest": "passed; 76 tests",
+    "miri_bankai_arrow_ffi": "passed; 3 tests",
+    "miri_full_pyo3_binding": "not completed; compilation exhausted temporary filesystem space before test runner"
+  },
+  "python_compatibility": {
+    "polars_minimum": "1.32.0",
+    "polars_minimum_installed_wheel_smoke": "passed; Arrow ingress/lifecycle subset 22 tests",
+    "polars_current": "1.44.2",
+    "numpy_only_installed_wheel_smoke": "passed",
+    "sdist_numpy_only_installed_smoke": "passed"
+  },
+  "memory_lifecycle": {
+    "warmups": 10,
+    "repetitions": 60,
+    "rss_growth_bytes": 262144,
+    "rss_growth_mib": 0.25,
+    "allowed_growth_bytes": 16777216,
+    "allowed_growth_mib": 16.0
+  },
+  "ingress_benchmark": {
+    "raw_results": "m6_ingress.json",
+    "baseline_revision": "a5944cd (same runtime as pre-M6 wheel)",
+    "repeat_count": 5,
+    "configurations": 24,
+    "geometric_mean_numpy_current_over_baseline": 1.0194736796612844,
+    "geometric_mean_numpy_regression_percent": 1.9473679661284438,
+    "investigation_threshold_percent": 10,
+    "polars_copied_bytes_observed": [
+      0
+    ],
+    "rss_scope": "Peak process RSS includes every retained input layout fixture, imports, setup, and warm-up; it is not a per-fit or incremental allocation measurement.",
+    "signature_parity": "all layouts and pre/post-M6 decisions and hit histories matched"
+  },
+  "artifacts": {
+    "wheel": {
+      "path": "../../target/wheels/bankai_boruta-0.1.0-cp311-abi3-macosx_11_0_arm64.whl",
+      "sha256": "430e5be5d639fa5ad31286c5f0c6061f4a13d8e63490159d1678cb28b583b0a0",
+      "installed_smoke": "passed"
+    },
+    "sdist": {
+      "path": "../../dist/bankai_boruta-0.1.0.tar.gz",
+      "sha256": "06142c754cccd095bba5b348b9d5c8c0b33c44b52bf9b174bd502b479779be47",
+      "installed_smoke": "passed"
+    }
+  }
+}

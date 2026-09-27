@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/boruta-core", "crates/python"]
+members = ["crates/boruta-core", "crates/python", "crates/arrow-ffi"]
 resolver = "3"
 
 [workspace.package]

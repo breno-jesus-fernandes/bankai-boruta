@@ -288,8 +288,8 @@ def test_refit_updates_feature_names_and_selector_works_in_pipeline():
             self.values = values
             self.columns = columns
 
-        def __array__(self, dtype=None):
-            return np.asarray(self.values, dtype=dtype)
+        def __array__(self, dtype=None, copy=None):
+            return np.array(self.values, dtype=dtype, copy=copy)
 
     rng = np.random.default_rng(88)
     y = np.tile([0, 1], 40)
@@ -308,14 +308,12 @@ def test_refit_updates_feature_names_and_selector_works_in_pipeline():
     assert transformed.shape[0] == y.size
 
 
-def test_polars_dataframe_requires_and_uses_explicit_copy_mode():
+def test_polars_dataframe_copy_mode_reports_materialization():
     pl = pytest.importorskip("polars")
     import numpy as np
 
     y = np.tile([0, 1], 32)
     X = pl.DataFrame({"signal": y.astype(float), "noise": np.arange(y.size, dtype=float)})
-    with pytest.raises(ValueError, match="zero_copy"):
-        BankaiBoruta(n_estimators=8, max_iter=1).fit(X, y)
 
     fitted = BankaiBoruta(
         n_estimators=8, max_iter=1, input_mode="copy", random_state=2

@@ -3,6 +3,9 @@ name = "bankai-boruta-python"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "PyO3 extension module for bankai-boruta."
+repository = "https://github.com/breno-jesus-fernandes/bankai-boruta"
+homepage = "https://github.com/breno-jesus-fernandes/bankai-boruta"
 
 [lib]
 name = "_core"
@@ -12,6 +15,10 @@ crate-type = ["cdylib"]
 boruta-core = { path = "../boruta-core" }
 numpy = "0.29.0"
 pyo3 = { version = "0.29.2", features = ["abi3-py311"] }
+
+bankai-arrow-ffi = { path = "../arrow-ffi" }
+arrow-array = "=59.3.0"
+arrow-schema = "=59.3.0"
 
 [lints.rust]
 unsafe_code = "forbid"

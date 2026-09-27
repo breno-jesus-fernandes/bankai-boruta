@@ -1,8 +1,10 @@
 //! PyO3 extension for bankai-boruta.
 
+mod arrow;
+
 use boruta_core::{
-    BorutaConfig, ImportanceScale, MatrixView, MaxFeatures, PermutationImportanceProvider,
-    PruningMode, run_boruta,
+    BorutaConfig, FeatureStorage, ImportanceScale, LogicalMatrix, MatrixView, MaxFeatures,
+    PermutationImportanceProvider, PruningMode, run_boruta,
 };
 use numpy::{Element, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -145,7 +147,26 @@ fn fit_boruta<'py>(
         store_history,
     };
 
-    let (result, copied_bytes) = match input_mode {
+    if input_mode == "zero_copy" && x.hasattr("__arrow_c_stream__")? {
+        let storage = import_arrow_storage(x)?;
+        let (rows, columns) = storage.shape();
+        let names = storage.names.clone();
+        let matrix = LogicalMatrix::from_storage(storage)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let result = run_boruta(
+            matrix,
+            labels,
+            n_classes,
+            &config,
+            &mut PermutationImportanceProvider,
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let result = result_to_python(py, result, 0)?;
+        result.bind(py).set_item("feature_names", names)?;
+        result.bind(py).set_item("shape", (rows, columns))?;
+        return Ok(result);
+    }
+    let ((result, shape), copied_bytes) = match input_mode {
         "zero_copy" => {
             if let Ok(array) = x.extract::<PyReadonlyArray2<'py, f64>>() {
                 (fit_array(array, labels, n_classes, &config)?, 0)
@@ -182,7 +203,9 @@ fn fit_boruta<'py>(
             ));
         }
     };
-    result_to_python(py, result, copied_bytes)
+    let output = result_to_python(py, result, copied_bytes)?;
+    output.bind(py).set_item("shape", shape)?;
+    Ok(output)
 }
 
 fn fit_array<T>(
@@ -190,7 +213,7 @@ fn fit_array<T>(
     labels: Vec<usize>,
     n_classes: usize,
     config: &BorutaConfig,
-) -> PyResult<boruta_core::BorutaResult>
+) -> PyResult<(boruta_core::BorutaResult, (usize, usize))>
 where
     T: Element + Copy + Into<f64> + Send + Sync,
 {
@@ -206,6 +229,7 @@ where
     debug_assert!(matrix.shares_storage_with(values));
     let mut provider = PermutationImportanceProvider;
     run_boruta(matrix, labels, n_classes, config, &mut provider)
+        .map(|result| (result, (rows, columns)))
         .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
@@ -280,10 +304,42 @@ fn result_to_python(
     Ok(output.unbind())
 }
 
+fn import_arrow_storage(x: &Bound<'_, PyAny>) -> PyResult<arrow::ArrowStorage> {
+    // DataFrame C Stream export may rechunk in Polars. Series streams preserve their
+    // independent chunks. All Python calls occur here, before entering the native loop.
+    let modules = x.py().import("sys")?.getattr("modules")?;
+    if let Some(polars) = modules.cast::<PyDict>()?.get_item("polars")?
+        && x.is_instance(&polars.getattr("DataFrame")?)?
+    {
+        let mut columns = Vec::new();
+        for series in x.call_method0("get_columns")?.try_iter()? {
+            let series = series?;
+            let name = series.getattr("name")?.extract::<String>()?;
+            columns.push((name, bankai_arrow_ffi::import_column(&series)?));
+        }
+        return arrow::ArrowStorage::from_columns(columns).map_err(PyValueError::new_err);
+    }
+    let (batches, schema) = bankai_arrow_ffi::import_table(x)?;
+    arrow::ArrowStorage::new(batches, schema).map_err(PyValueError::new_err)
+}
+
+/// Test/debug hook: effective pointers and lengths, never retained in fitted state.
+#[pyfunction]
+fn _inspect_arrow_buffers(py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    let storage = import_arrow_storage(x)?;
+    let out = PyDict::new(py);
+    out.set_item("rows", storage.shape().0)?;
+    out.set_item("buffers", storage.buffers())?;
+    // Same validation as fit, including NaN/Inf.
+    LogicalMatrix::from_storage(storage).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(out.unbind())
+}
+
 #[pymodule]
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("ENGINE_READY", true)?;
     module.add_function(wrap_pyfunction!(inspect_matrix, module)?)?;
     module.add_function(wrap_pyfunction!(fit_boruta, module)?)?;
+    module.add_function(wrap_pyfunction!(_inspect_arrow_buffers, module)?)?;
     Ok(())
 }

@@ -50,17 +50,19 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
 
         from . import _core
 
+        # A failed refit must not expose stale fitted state from the preceding fit.
+        for name in tuple(vars(self)):
+            if name.endswith("_") and not name.startswith("__"):
+                delattr(self, name)
         self._validate_parameters()
-        if self.input_mode == "zero_copy" and not isinstance(X, np.ndarray):
-            raise ValueError("zero_copy requires a NumPy ndarray; use input_mode='copy'")
-        python_materialized_bytes = 0
-        X_array = np.asarray(X)
-        if self.input_mode == "copy" and not isinstance(X, np.ndarray):
-            python_materialized_bytes = int(X_array.nbytes)
+        is_numpy = isinstance(X, np.ndarray)
+        is_arrow = hasattr(X, "__arrow_c_stream__")
+        if self.input_mode == "zero_copy" and not (is_numpy or is_arrow):
+            raise ValueError("zero_copy requires a NumPy ndarray or Arrow C Stream input; use input_mode='copy'")
         y_array = np.asarray(y)
-        if X_array.ndim != 2 or y_array.ndim != 1:
+        if y_array.ndim != 1 or (is_numpy and X.ndim != 2):
             raise ValueError("X must be 2D and y must be 1D")
-        if X_array.shape[0] != y_array.shape[0]:
+        if is_numpy and X.shape[0] != y_array.shape[0]:
             raise ValueError("X and y must contain the same number of rows")
         y_array = check_array(y_array, ensure_2d=False, dtype=None)
         check_classification_targets(y_array)
@@ -72,8 +74,18 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             max_features = self.max_features
         else:
             max_features = float(self.max_features) if isinstance(self.max_features, float) else int(self.max_features)
+        # Polars' copy path exports once; borrow that buffer inside Rust when its
+        # dtype is already supported. No second np.array(copy=True) is needed.
+        import sys
+        native_X, native_mode, materialized_bytes = X, self.input_mode, 0
+        polars = sys.modules.get("polars")
+        if self.input_mode == "copy" and polars is not None and isinstance(X, polars.DataFrame):
+            native_X = X.to_numpy(order="c", writable=True)
+            materialized_bytes = int(native_X.nbytes)
+            if native_X.dtype in (np.dtype("float32"), np.dtype("float64")):
+                native_mode = "zero_copy"
         result = _core.fit_boruta(
-            X_array,
+            native_X,
             encoded_y,
             int(classes.size),
             self.n_estimators,
@@ -86,22 +98,24 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             self.random_state,
             self.importance_scale,
             self.store_history,
-            self.input_mode,
+            native_mode,
         )
 
         decisions = np.asarray(result["decisions"], dtype=np.uint8)
         self.support_ = decisions == 1
         self.support_weak_ = decisions == 2
         self.decision_ = decisions
-        self.n_features_in_ = X_array.shape[1]
-        if hasattr(X, "columns") and all(isinstance(name, str) for name in X.columns):
+        self.n_features_in_ = result["shape"][1]
+        if "feature_names" in result:
+            self.feature_names_in_ = np.asarray(result["feature_names"], dtype=object)
+        elif hasattr(X, "columns") and all(isinstance(name, str) for name in X.columns):
             self.feature_names_in_ = np.asarray(X.columns, dtype=object)
         elif hasattr(self, "feature_names_in_"):
             del self.feature_names_in_
         self.n_iter_ = result["n_iter"]
         self.stop_reason_ = result["stop_reason"]
         self.diagnostics_ = result["diagnostics"]
-        self.diagnostics_["copied_bytes"] += python_materialized_bytes
+        self.diagnostics_["copied_bytes"] += materialized_bytes
         if self.store_history:
             self.history_ = result["history"]
         elif hasattr(self, "history_"):

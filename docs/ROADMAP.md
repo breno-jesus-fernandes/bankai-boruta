@@ -362,8 +362,11 @@ precoces irreversíveis e multiplicação do consumo por threads.
 
 ## M6 — Polars, sklearn e ciclo de vida
 
-**Status:** em andamento; contrato sklearn e ingestão Polars por cópia validados,
-mas importação Arrow sem cópia ainda é uma limitação aberta.
+**Status:** concluído em 2026-09-27. NumPy e Polars entram no mesmo loop
+nativo; Polars usa Arrow C Stream com buffers compartilhados e ownership RAII.
+
+**Plano de conclusão:** [M6.1–M6.6](limitations/M6-resolution-plan.md), com
+contrato de tipos, abstração colunar, ownership, TDD e gates de aceite.
 
 **Objetivo:** fechar interoperabilidade, pipelines e serialização compacta.
 
@@ -381,22 +384,28 @@ ou florestas. Permitir a alocação da saída selecionada de `transform`.
 **Riscos:** conversões ocultas no exportador ou na validação sklearn e vazamento
 de informação ao selecionar features antes da validação cruzada.
 
-- [x] NumPy obrigatório e Polars opcional; Polars exige `input_mode="copy"` e
-  o teste verifica que a materialização está contabilizada.
+- [x] NumPy obrigatório e Polars opcional; zero-copy Arrow suporta Float32/64,
+  chunks, slices/offsets e colunas de tipos mistos sem conversão NumPy.
 - [x] Testes cobrem seleção em `Pipeline`, `clone`, nomes, refit removendo
   nomes antigos e pickle sem reter `X`, `y` ou floresta.
-- [ ] Importar buffers Arrow/Polars sem conversão para NumPy; limitação descrita
-  em [`docs/limitations/M6-arrow-zero-copy.md`](limitations/M6-arrow-zero-copy.md).
+- [x] Ingresso Arrow, liberação em sucesso/erro parcial, pipelines, lifecycle,
+  artefatos e contrato documentados em
+  [`docs/limitations/M6-arrow-zero-copy.md`](limitations/M6-arrow-zero-copy.md).
 - [x] Pickle round-trip do estimador treinado sem matrizes/árvore no estado; fit
   e import também passam após instalação isolada do wheel e do sdist.
-- [ ] Verificações finais, roadmap atualizado, commit e push de conclusão.
+- [x] Rust (40 testes), Python (76 testes), Clippy estrito, Miri no crate FFI,
+  Polars 1.32, smoke wheel/sdist e benchmarks aprovados; evidências em
+  [`m6_validation_2026-09-27.json`](../benchmarks/results/m6_validation_2026-09-27.json).
+- [x] Benchmark NumPy pré/pós-refatoração: razão geométrica 1,0195x (1,95%
+  mais lento, abaixo do limite de investigação de 10%); RSS de processo inclui
+  fixtures e não representa alocação incremental por fit.
 
 **Commit:** `feat: add polars and sklearn selector integration`
 
 ## M7 — Benchmarks, endurecimento e distribuição
 
-**Status:** em andamento; wheel/sdist locais instalados e testados, benchmark
-controlado e matriz de plataformas ainda pendentes.
+**Status:** em andamento. M6 validou wheel/sdist local no macOS arm64; M7
+ainda cobre benchmarks comparativos completos e a matriz ampliada de plataformas.
 
 **Objetivo:** demonstrar desempenho e memória em instalações reproduzíveis.
 

@@ -29,3 +29,48 @@ Rust core tests run with Cargo:
 ```bash
 cargo test --workspace
 ```
+
+## Polars and Arrow input
+
+Install `bankai-boruta[polars]` to select directly from Polars DataFrames.
+The strict path supports Float32/Float64 columns, mixed float widths, slices,
+and independently chunked columns. It imports each Series through Arrow C
+Stream, retaining the original value buffers for the duration of `fit`.
+No rechunk, NumPy conversion or augmented matrix is needed. Nulls, NaN/Inf,
+unsupported types and unaligned buffers raise an error. Integers can use the
+explicit `input_mode="copy"` conversion path.
+
+```python
+from bankai_boruta import BankaiBoruta
+from sklearn.pipeline import make_pipeline
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.model_selection import cross_val_score
+
+selector = BankaiBoruta(random_state=42, n_jobs=4)
+pipeline = make_pipeline(selector, DecisionTreeClassifier(random_state=42))
+scores = cross_val_score(pipeline, X_polars, y, cv=3)
+```
+
+Selection belongs inside the cross-validation pipeline. For a fitted selector,
+`set_output(transform="polars")` preserves named Polars output. `transform` may
+allocate its selected output. Pickle/joblib store decisions and metadata, not
+training buffers or forests; a failed refit clears the preceding fitted state.
+
+Other CPU Arrow C Stream table exporters are accepted without copying buffers
+inside the importer. Their own export methods may allocate; the end-to-end
+zero-copy guarantee is tested specifically for supported Polars float layouts.
+`copied_bytes` measures known matrix materializations, not all allocations or
+allocations internal to third-party exporters. Labels, shadow indices, chunk
+metadata and forest workspaces still allocate. Keep inputs unchanged during fit.
+PyArrow is not a runtime dependency.
+
+The Arrow development suite must run with its optional dependencies installed:
+
+```bash
+uv sync --extra test --extra arrow-test
+uv run --no-sync maturin develop --release --skip-install
+uv run --no-sync pytest
+```
+
+See [the M6 plan](docs/limitations/M6-resolution-plan.md) and
+[FFI ownership notes](crates/arrow-ffi/SAFETY.md).
