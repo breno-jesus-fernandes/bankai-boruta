@@ -153,7 +153,8 @@ com o código inspecionado. Não requer testes de código.
 
 ## M1 — Contratos executáveis e infraestrutura TDD
 
-**Status:** pendente.
+**Status:** concluído em 2026-09-27. O binding e o estimador já existem; o loop
+nativo permanece deliberadamente indisponível até M4.
 
 **Objetivo:** estabelecer comportamento e medição antes do motor funcional.
 
@@ -170,9 +171,19 @@ subprocessos. Estado estatístico sem histórico deve ser `O(p)`.
 **Risco:** confundir equivalência estatística com igualdade entre florestas
 distintas ou perpetuar detalhes acidentais de outra implementação.
 
-- [ ] Fixtures determinísticas e contratos executáveis aprovados.
-- [ ] Harness de benchmarks e dados sintéticos reproduzíveis disponíveis.
-- [ ] Verificações concluídas, roadmap atualizado, commit e push realizados.
+- [x] Ledger Rust mantém IDs originais, estados tentativos e decisões finais
+  irreversíveis; IDs fora do intervalo e tentativas de reset geram erro.
+- [x] Binding PyO3 carregável e estimador sklearn clonável, com validação de
+  parâmetros e erro claro de `fit` até a chegada do motor M4.
+- [x] Fixtures seeded para sinal misto, nulo, correlação e XOR; baseline sklearn
+  em JSON registra dataset, seed, versão, plataforma e duração.
+- [x] `cargo fmt --all -- --check`, `cargo test --workspace` (6 testes),
+  `cargo clippy --workspace --all-targets -- -D warnings`, `uv run pytest`
+  (22 testes), baseline JSON e `git diff --check` aprovados.
+- [x] Roadmap atualizado, commitado e enviado ao GitHub.
+
+**Limitação registrada:** `BankaiBoruta.fit` lança `RuntimeError` até M4. O
+ledger não escolhe decisões estatísticas ainda; isso será coberto pelo TDD de M4.
 
 **Commit:** `test: establish boruta contracts and benchmark harness`
 

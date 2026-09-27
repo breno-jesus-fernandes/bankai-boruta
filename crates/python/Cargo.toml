@@ -1,0 +1,16 @@
+[package]
+name = "bankai-boruta-python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+boruta-core = { path = "../boruta-core" }
+pyo3 = { version = "0.29.2", features = ["abi3-py311"] }
+
+[lints.rust]
+unsafe_code = "forbid"

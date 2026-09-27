@@ -1,0 +1,35 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "bankai-boruta"
+version = "0.1.0"
+description = "Native Rust Boruta feature selection for Python."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "GPL-3.0-or-later" }
+license-files = ["COPYING"]
+dependencies = [
+    "numpy>=2.1",
+    "scikit-learn>=1.6",
+]
+
+[project.optional-dependencies]
+polars = ["polars>=1.0"]
+test = ["pytest>=8.3", "pytest-benchmark>=5.1"]
+
+[dependency-groups]
+dev = ["maturin>=1.9,<2", "pytest>=8.3", "pytest-benchmark>=5.1"]
+
+[tool.maturin]
+manifest-path = "crates/python/Cargo.toml"
+python-source = "python"
+module-name = "bankai_boruta._core"
+bindings = "pyo3"
+compatibility = "pypi"
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+pythonpath = ["."]
