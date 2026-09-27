@@ -455,6 +455,144 @@ oversubscription e resultados dominados por conversão ou compilação.
 Publicar código e relatórios no GitHub faz parte do marco. Publicação em um
 registro de pacotes não é pré-requisito e exige configuração própria de release.
 
+## M8 — Estimador scikit-learn opcional, preservando o caminho nativo
+
+**Status:** planejado; implementação não iniciada.
+
+**Decisão de arquitetura:** `BankaiBoruta()` sem estimador externo mantém o
+provider Bankai/XRF em Rust como caminho padrão. Esse caminho continua com
+shadows virtuais, loop e estatística nativos, sem callback Python por iteração.
+Um estimador sklearn é opt-in, por exemplo
+`BankaiBoruta(estimator=..., importance_getter="auto")`. Nesse modo, o
+controller, a poda e as decisões estatísticas continuam em Rust, mas cada
+iteração chama o estimador Python sob o GIL e entrega uma matriz aumentada
+materializada. A API não promete zero-copy nem paridade de velocidade nesse
+modo; a flexibilidade é a razão para escolhê-lo.
+
+O primeiro escopo aceita estimadores clonáveis por `sklearn.base.clone` que
+exponham `feature_importances_` ou `coef_`, ou um `importance_getter` explícito
+(atributo/dotted path ou callable). O getter deve produzir um score numérico
+finito e não negativo por feature de entrada, incluindo as shadows, na ordem
+features reais ativas seguida das shadows. `coef_` será reduzido a importância
+não negativa por feature, agregando classes de modo determinístico.
+Estimadores sem uma fonte de importância não são aceitos implicitamente; o
+usuário precisa fornecer um getter. Cada iteração clona o estimador-template,
+ajusta o clone e o descarta depois de extrair os scores. O objeto fornecido pelo
+usuário não é mutado e `warm_start` não carrega estado entre iterações.
+
+**Contrato de memória:** o caminho nativo atual não muda. No modo externo,
+`X` continua emprestado quando o formato permitir; Rust cria uma matriz NumPy
+C-contígua por iteração com features reais ativas e shadows, e libera essa
+matriz e o estimador clonado após obter os scores. `y` é codificado uma vez por
+fit e reutilizado. O diagnóstico separa bytes materializados, número/tempo de
+callbacks e tempo total; cópias adicionais feitas pelo próprio estimador não
+podem ser garantidas nem evitadas pelo Bankai.
+
+### M8.0 — Contratos e testes antes do adapter
+
+- **Objetivo:** separar no core a validade OOB, específica do provider atual,
+  do contrato genérico de scores por feature. Preservar cardinalidade,
+  estabilidade de IDs, pruning e stopping.
+- **Rust primeiro:** adicionar testes com providers fake OOB e não-OOB; score
+  curto/extra, NaN/inf, erro por iteração, mapeamento active→original e
+  ordem real+shadow, e evidência de que a confirmação/rejeição continua no
+  controller Rust. Fixar
+  paridade exata do provider nativo antes da refatoração.
+- **Python primeiro:** testar que `estimator=None` seleciona somente o provider
+  nativo, não chama hook, mantém resultados/diagnósticos atuais e passa
+  `sklearn.clone`/`get_params` sem guardar `X`, `y` ou floresta ajustada.
+- **Memória:** nenhum buffer Python novo no modo nativo; medir baseline antes e
+  depois desta alteração. O novo tipo de resultado armazena scores e
+  diagnóstico explícito do provider, sem reter a matriz.
+- **Riscos:** enfraquecer por engano a checagem OOB do modo nativo ou mudar as
+  decisões estatísticas ao generalizar o contrato.
+
+### M8.1 — Adapter Python para `feature_importances_`
+
+- **Objetivo:** aceitar um estimador sklearn de árvore como opção e invocá-lo
+  através de um provider PyO3; cada chamada `fit(X, y)` retorna ao controller
+  Rust apenas o vetor de importância.
+- **Rust primeiro:** usar provider fake para provar uma chamada por iteração,
+  erro propagado sem panic, resultado com largura correta e pruning observável
+  entre chamadas. Garantir que a implementação nativa continua sem callbacks.
+- **Python primeiro:** criar estimador spy clonável que registre shapes e seeds;
+  verificar `clone` distinto por iteração, template original intocado,
+  `feature_importances_` com nfeatures reais+shadows, controle determinístico,
+  falha de `fit` preservada e CV de sklearn em fixture pequena.
+- **Memória:** materializar somente as colunas ativas reais mais shadows em um
+  array C-contíguo por chamada; contar bytes e descartar buffer/clone antes da
+  iteração seguinte. Não prometer zero-copy para o estimador externo.
+- **Riscos:** GIL bloqueando outros threads Python, conversões internas do
+  estimador, callbacks lentos, warm-start/thread pools incompatíveis e
+  estimadores que mutam ou retêm `X`.
+
+### M8.2 — Getter de importância e validação de estimadores
+
+- **Objetivo:** ampliar compatibilidade de árvores para modelos lineares e
+  wrappers sklearn sem inferir importância silenciosamente.
+- **Rust primeiro:** testar agregação de scores por feature e rejeição de vetor
+  com dimensão incorreta ou valores não finitos; validar o erro de provider
+  com contexto de iteração.
+- **Python primeiro:** TDD para `importance_getter="auto"` (`feature_importances_`
+  ou `coef_`), atributo/dotted path, callable, coeficientes binários/multiclasse,
+  shape inesperado, scores negativos e getter que lança exceção.
+- **Memória:** getter retorna apenas um vetor pequeno; não guardar estimadores
+  ajustados/históricos em `BankaiBoruta`. `store_history` permanece a única
+  opção explícita para reter histórico do selector.
+- **Riscos:** escalas e semânticas incomparáveis entre getters; scores
+  personalizados precisam ser finitos, por feature e ordenáveis entre real e
+  shadow. Documentar que Boruta não torna um estimator sem explicabilidade
+  automaticamente interpretável.
+
+### M8.3 — API sklearn, ciclo de vida e modo Arrow/NumPy
+
+- **Objetivo:** estabilizar parâmetros, validação, exceções, serialização e
+  encaixe em `Pipeline`/CV sem afetar o default nativo.
+- **Rust primeiro:** testes de falha em callbacks, provider descartado ao sair,
+  refit após erro, limites de dimensão/overflow e execução repetida sem memória
+  retida. Rodar Miri nos caminhos unsafe existentes; adapter não introduz
+  `unsafe` sem revisão específica.
+- **Python primeiro:** `clone`, `get_params`/`set_params`, pickle do estimador
+  não ajustado, fit/refit, pipeline/CV, NumPy C/F/strided e dtypes suportados;
+  confirmar que a instância mantém somente o template, suporte, decisões e
+  diagnósticos configurados.
+- **Memória:** manter política explícita para input emprestado vs conversão;
+  Arrow e Polars no modo externo só entram após teste de materialização,
+  ownership e contagem de bytes por formato. A matriz aumentada não pode ficar
+  referenciada pelo estimator clone após a iteração.
+- **Riscos:** `clone`/pickle de estimadores customizados, referências retidas
+  pelo usuário, classes sklearn com requisitos próprios de dtype/sparse e
+  diferenças de comportamento em versões suportadas.
+
+### M8.4 — Benchmarks, documentação e gate de release
+
+- **Objetivo:** quantificar o preço da flexibilidade e provar que o default
+  nativo não regrediu.
+- **Rust primeiro:** executar suites core, providers fake, Clippy e regressões
+  de alocação do provider nativo.
+- **Python primeiro:** suite completa em Python 3.11/3.13; integração contra
+  `BankaiRandomForestClassifier`, sklearn RandomForest e um estimator linear;
+  testar contagem de callbacks/cópias e que erros não abortam o processo.
+- **Benchmarks primeiro:** cinco repetições pareadas no dataset M7 10k×100,
+  mesmas seeds, árvores, profundidade, scoring e orçamento de iterações:
+  (a) provider nativo Bankai; (b) modo externo com `BankaiRandomForestClassifier`
+  e getter de importância nativa para isolar adapter/materialização; (c) modo
+  externo com sklearn RandomForest; e (d) BorutaPy com o mesmo estimador como
+  baseline controlador. Publicar tempo de fit/end-to-end, RSS, bytes
+  materializados, chamadas ao provider e estimadores selecionados. Não alegar
+  paridade de velocidade entre os modos.
+- **Riscos:** benchmarks confundirem diferenças de importance/controller com
+  custo do adapter; manter pares com mesmo estimador e divulgar limites.
+- **Aceite:** sem mudança observável no comportamento/configuração default;
+  zero callbacks e zero cópia integral de `X` no modo nativo; uma chamada de
+  estimator por iteração no modo externo; clone/template sem mutação; shape e
+  finitude validados; matriz externa não retida; falhas Python propagadas como
+  exceções; relatório mostra o custo e os limites de memória do modo opcional.
+
+Cada subfase começa com os testes listados e só então recebe implementação.
+Não converter o provider nativo para callbacks Python nem tornar o estimator
+externo default. Fechar cada marco com relatório, commit e push.
+
 ## Benchmarks e definição de pronto
 
 ### Comparações
