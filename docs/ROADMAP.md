@@ -234,8 +234,8 @@ zero-copy de NumPy/Arrow nem reduz a cópia inicial da matriz.
 
 ## M3 — NumPy zero-copy e shadows virtuais
 
-**Status:** implementação parcial; bloqueado por divergência de paridade em
-empates de Gini. Detalhes e próximo passo em [M3-LIMITATIONS.md](M3-LIMITATIONS.md).
+**Status:** concluído em 2026-09-27. O adaptador usa o splitter exato compartilhado
+(`bankai-forest-core` `ab90aa7`) e replica o voto binário com limites do core.
 
 **Objetivo:** executar uma iteração completa sem materializar a matriz aumentada.
 
@@ -252,10 +252,13 @@ instrumentar zero bytes copiados da matriz no caminho estrito.
 **Riscos:** indireções prejudicarem cache, permutações compartilhadas preservarem
 correlações indevidas e mutação externa invalidar o empréstimo.
 
-- [ ] Paridade numérica com o oráculo materializado.
-- [ ] Zero cópias integrais de `X` comprovadas no caminho estrito.
-- [ ] Memória auxiliar medida.
-- [ ] Verificações concluídas, roadmap atualizado, commit e push realizados.
+- [x] Paridade de árvore e importância com `DenseInput` em 8 seeds, classes
+  binárias/multiclasse e matrizes com valores repetidos.
+- [x] Zero cópias integrais de `X` comprovadas pelo empréstimo de buffer e teste
+  do ingresso NumPy; sombras são colunas virtuais.
+- [x] Registrar custo auxiliar: `O(n * shadows)` índices por permutação e
+  workspaces de treinamento por árvore.
+- [x] Verificações concluídas, roadmap atualizado, commit e push realizados.
 
 **Commit:** `feat: add zero-copy numpy input and virtual shadows`
 

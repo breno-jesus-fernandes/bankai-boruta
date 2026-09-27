@@ -1,6 +1,7 @@
 //! Core state and statistics for the native Boruta implementation.
 #![forbid(unsafe_code)]
 
+use bankai_forest_core::best_split_gini_exact;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use thiserror::Error;
@@ -373,6 +374,20 @@ impl bankai_forest_core::xrf::DecisionSlice<usize> for MatrixDecisionSlice {
         best.consume().map_or(0, |(_, class)| class)
     }
 
+    fn condense_with_bounds(
+        &self,
+        rng: &mut bankai_forest_core::xrf::RfRng,
+        lower_bound: f64,
+        upper_bound: f64,
+    ) -> usize {
+        if self.class_counts.len() != 2 || self.labels.is_empty() {
+            return self.condense(rng);
+        }
+        let probability = (self.class_counts[1] as f64 / self.labels.len() as f64)
+            .clamp(lower_bound, upper_bound);
+        usize::from(probability > 0.5)
+    }
+
     fn positive_probability(&self) -> Option<f64> {
         (self.class_counts.len() == 2)
             .then(|| self.class_counts[1] as f64 / self.labels.len().max(1) as f64)
@@ -547,15 +562,32 @@ where
         _: &Self::SplitCache,
         _: &mut bankai_forest_core::xrf::RfRng,
     ) -> Option<(f64, bool, f64)> {
-        best_matrix_split(&self.matrix, mask, feature, target, self.n_classes).map(
-            |(pivot, missing_left, gain)| {
-                (
-                    pivot,
-                    missing_left,
-                    gain * target.labels.len() as f64 / self.matrix.rows as f64,
-                )
-            },
+        let mut ranked = mask
+            .iter()
+            .copied()
+            .zip(target.labels.iter().copied())
+            .map(|(row, label)| Some((self.matrix.get(row, feature)?, label, 1.0)))
+            .collect::<Option<Vec<_>>>()?;
+        let class_weights = target
+            .class_counts
+            .iter()
+            .map(|&count| count as f64)
+            .collect::<Vec<_>>();
+        best_split_gini_exact(
+            &mut ranked,
+            &class_weights,
+            target.labels.len() as f64,
+            1,
+            0.0,
+            0.0,
         )
+        .map(|(pivot, missing_left, gain)| {
+            (
+                pivot,
+                missing_left,
+                gain * target.labels.len() as f64 / self.matrix.rows as f64,
+            )
+        })
     }
 
     fn split_iter<'b>(
@@ -572,80 +604,4 @@ where
                 > *pivot
         })
     }
-}
-
-fn best_matrix_split<T: Copy + Into<f64>>(
-    matrix: &MatrixView<'_, T>,
-    mask: &bankai_forest_core::xrf::Mask,
-    feature: usize,
-    target: &MatrixDecisionSlice,
-    n_classes: usize,
-) -> Option<(f64, bool, f64)> {
-    let mut ordered = mask
-        .iter()
-        .copied()
-        .zip(target.labels.iter().copied())
-        .map(|(row, label)| Some((matrix.get(row, feature)?, label)))
-        .collect::<Option<Vec<_>>>()?;
-    ordered.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
-    if ordered.len() < 2 {
-        return None;
-    }
-
-    let total = ordered.len() as f64;
-    let parent_weights = target
-        .class_counts
-        .iter()
-        .map(|&n| n as f64)
-        .collect::<Vec<_>>();
-    let parent_impurity = gini(&parent_weights, total);
-    let mut left_counts = vec![0.0_f64; n_classes];
-    let mut right_counts = target
-        .class_counts
-        .iter()
-        .map(|&n| n as f64)
-        .collect::<Vec<_>>();
-    let mut left_weight = 0.0;
-    let mut best: Option<(f64, f64, bool)> = None;
-    for split in 0..ordered.len() - 1 {
-        let moved_class = ordered[split].1;
-        left_counts[moved_class] += 1.0;
-        right_counts[moved_class] -= 1.0;
-        left_weight += 1.0;
-        let lower = ordered[split].0;
-        let upper = ordered[split + 1].0;
-        if lower.total_cmp(&upper).is_eq() {
-            continue;
-        }
-        let left_count = split + 1;
-        let right_count = ordered.len() - left_count;
-        let right_weight = total - left_weight;
-        let gain = parent_impurity
-            - (left_weight / total) * gini(&left_counts, left_weight)
-            - (right_weight / total) * gini(&right_counts, right_weight);
-        // Avoid platform/weight-accumulation noise changing the chosen threshold
-        // when two candidate partitions have mathematically equal Gini gain.
-        let improves = best.is_none_or(|(_, best_gain, _)| {
-            gain > best_gain + f64::EPSILON * best_gain.abs().max(gain.abs()).max(1.0) * 4.0
-        });
-        if improves {
-            let midpoint = lower * 0.5 + upper * 0.5;
-            best = Some((midpoint, gain, left_count <= right_count));
-        }
-    }
-    best.filter(|(_, gain, _)| *gain > 0.0)
-        .map(|(pivot, gain, missing_left)| (pivot, missing_left, gain))
-}
-
-fn gini(counts: &[f64], total: f64) -> f64 {
-    if total == 0.0 {
-        return 0.0;
-    }
-    1.0 - counts
-        .iter()
-        .map(|&count| {
-            let probability = count / total;
-            probability * probability
-        })
-        .sum::<f64>()
 }
