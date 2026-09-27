@@ -404,8 +404,11 @@ de informação ao selecionar features antes da validação cruzada.
 
 ## M7 — Benchmarks, endurecimento e distribuição
 
-**Status:** em andamento. M6 validou wheel/sdist local no macOS arm64; M7
-ainda cobre benchmarks comparativos completos e a matriz ampliada de plataformas.
+**Status:** em andamento. As comparações foram reduzidas a um único dataset
+10k×100. O conjunto completo de desempenho e a checagem exploratória de
+qualidade foram executados. Falta observar CI em
+plataformas não macOS; o Clippy estrito do XRF no projeto irmão segue com lints
+preexistentes registrados no relatório de validação.
 
 **Objetivo:** demonstrar desempenho e memória em instalações reproduzíveis.
 
@@ -423,14 +426,27 @@ copiados. `tracemalloc` sozinho não mede as alocações Rust.
 **Riscos:** diferenças de importância/stopping invalidarem comparações,
 oversubscription e resultados dominados por conversão ou compilação.
 
-- [ ] Protocolo abaixo executado com resultados brutos e relatório versionados.
+- [x] Comparações executadas exclusivamente em 10k×100: 126 resultados finais,
+  incluindo 5 repetições de desempenho, warmups e qualidade exploratória com
+  3 seeds e 2 iterações em quatro cenários para seis seletores. Esta checagem
+  não satisfaz o gate de 30 seeds; o relatório explicita a limitação. Suítes
+  locais aprovadas: Boruta 84 Python (3.11 e 3.13),
+  40 Rust; Random Forest 147 Python e 20 Rust. O Clippy estrito do projeto irmão
+  permanece com lints anteriores ao benchmark. Evidências em
+  [`m7_validation_2026-09-27.json`](../benchmarks/results/m7_validation_2026-09-27.json).
+  Resultados e limitações: [`m7_comparisons.md`](../benchmarks/results/m7_comparisons.md)
+  e [`m7_comparisons.json`](../benchmarks/results/m7_comparisons.json).
 - [x] Distribuições locais instaláveis e smoke test isolado no macOS arm64,
   Python 3.11; evidências e hashes em
   [`benchmarks/results/m7_artifact_smoke_2026-09-27.json`](../benchmarks/results/m7_artifact_smoke_2026-09-27.json).
-- [ ] Suítes dos dois projetos aprovadas em todos os alvos suportados.
-- [ ] Limitações e perdas de desempenho registradas, sem seleção de resultados.
-- [ ] Artefatos construídos exclusivamente com Maturin.
-- [ ] Roadmap atualizado, commit e push realizados.
+- [x] Suítes locais dos dois projetos aprovadas; execução CI em plataformas não
+  macOS ainda pendente.
+- [x] Limitações e perdas de desempenho registradas; a medição de SHAP em
+  10k×100 usou somente duas iterações e não é evidência de convergência nem
+  declaração de liderança.
+- [x] Wheel e sdist locais construídos exclusivamente com Maturin e instalados
+  em ambientes isolados, conforme o relatório de smoke do M7.
+- [x] Roadmap atualizado, commit e push realizados.
 
 **Commit:** `release: validate benchmarks and distribution artifacts`
 
@@ -449,20 +465,26 @@ registro de pacotes não é pré-requisito e exige configuração própria de re
 | boruta-fru | Concorrente nativo direto |
 | BorutaPy e Boruta-Shap | Comparações adicionais do ecossistema |
 
-Na comparação controlada com sklearn, usar importância por árvore em dados
-OOB no harness. Não tratar `sklearn.inspection.permutation_importance` sobre
-outro conjunto como a mesma operação. Identificar explicitamente Gini/SHAP e
-demais diferenças nas comparações de soluções completas.
+Para esta rodada, a pedido do mantenedor, usar exclusivamente 10k×100. Os
+datasets de 1k, 100k e alta dimensionalidade ficam fora desta matriz. O relatório distingue
+as métricas de floresta isolada, BorutaPy, Boruta-fru, Boruta-Shap com Gini/SHAP,
+o seletor Bankai e um diagnóstico de orquestração Python. Não tratar
+`sklearn.inspection.permutation_importance` em dados distintos como equivalente
+à importância OOB; explicitar diferenças de importância e controller. A amostra
+de qualidade com três seeds e duas iterações é preliminar e não atende ao gate
+de trinta seeds.
 
 ### Matriz e execução
 
-- Formatos: `1k×20`, `10k×100`, `100k×100` e `2k×5k`.
+- Formato único desta rodada: `10k×100`; tamanhos menores e maiores foram
+  removidos da comparação a pedido do mantenedor.
 - Cenários: ruído puro, sinal forte, sinais fracos, correlação, redundância,
   interações e desbalanceamento.
 - Fixar datasets, seeds, commits, árvores, threads, hardware e versões.
 - Medir iterações fixas e execução até o stopping próprio separadamente.
-- Cinco execuções por configuração para desempenho/RSS; trinta seeds por
-  cenário sintético para qualidade.
+- Cinco execuções por configuração para desempenho/RSS; três seeds e duas
+  iterações por cenário sintético para a checagem exploratória de qualidade.
+  O gate de qualidade para conclusões fortes continua sendo trinta seeds.
 - Registrar wall time, CPU, RSS, iterações, dimensão ativa, precisão/recall da
   seleção, tentativas e desempenho preditivo posterior.
 - Medir conversão separadamente e incluí-la também no tempo ponta a ponta.

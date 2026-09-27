@@ -1,0 +1,67 @@
+{
+  "date": "2026-09-27",
+  "host": {
+    "platform": "macOS 26.6.2 arm64",
+    "python_boruta_3_11": "3.11.11",
+    "python_benchmarks_3_12": "3.12.3",
+    "python_boruta_3_13": "3.13.1"
+  },
+  "benchmark": {
+    "final_records": 126,
+    "warmups": 9,
+    "performance_runs": 45,
+    "quality_runs": 72,
+    "performance_max_rows": 10000,
+    "quality_rows": 10000,
+    "quality_seeds_per_scenario_per_selector": 3,
+    "selectors": 6,
+    "synthetic_scenarios": [
+      "mixed",
+      "null",
+      "correlated",
+      "xor"
+    ],
+    "performance_dimensions": [
+      [
+        10000,
+        100
+      ]
+    ],
+    "quality_dimensions": [
+      [
+        10000,
+        100
+      ]
+    ],
+    "quality_iterations": 2,
+    "methods": 9
+  },
+  "tests": {
+    "bankai_boruta_rust": "40 passed",
+    "bankai_boruta_python_3_11": "84 passed",
+    "bankai_boruta_python_3_13": "84 passed",
+    "bankai_random_forest_rust": "20 passed",
+    "bankai_random_forest_python_3_11": "147 passed"
+  },
+  "lint": {
+    "bankai_boruta_clippy_strict": "passed",
+    "bankai_random_forest_clippy_strict": "failed on pre-existing XRF lints including dead_code, assign_op_pattern, too_many_arguments, needless_borrow, len_zero, casts, and related warnings; sibling source was not modified"
+  },
+  "distribution": {
+    "build_backend": "Maturin only",
+    "wheel_sdist": "built and installed in isolated environments during M6; M7 changed only benchmarks/tests/docs",
+    "cross_platform_ci": "not yet observed on GitHub Actions; local runs were macOS arm64"
+  },
+  "revisions": {
+    "bankai_boruta": "6ca70d3af749676cbcb6db1c45c7a6525f9e492f",
+    "bankai_random_forest": "b29a7fc07fc36405a17c7739aaefef99baa72d79"
+  },
+  "limits": [
+    "All benchmark records use 10,000 rows and 100 features; the previous 1k performance rows were removed from the published comparison.",
+    "Performance uses five repetitions and two iterations. The quality cross-check is exploratory (three seeds, two iterations) and does not satisfy the 30-seed statistical gate.",
+    "Boruta-Shap/SHAP quality cases at 10k were measured at up to 89.7 seconds each; the reduced exploratory budget keeps all methods in the comparison without a multi-hour SHAP run.",
+    "Quality metrics at two iterations do not establish selector convergence; performance comparisons are exploratory host measurements and not a universal leadership claim.",
+    "GitHub Actions cross-platform results remain pending.",
+    "Strict Clippy on the sibling XRF fork remains blocked by existing lints and was not fixed as part of the benchmark task."
+  ]
+}
