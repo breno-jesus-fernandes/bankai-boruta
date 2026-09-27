@@ -316,15 +316,15 @@ testes repetidos como garantia sequencial global.
   `uv run pytest` (49 testes) aprovados.
 - [x] Roadmap atualizado, commit e push realizados.
 
-**Limitações nesta fase:** `pruning="aggressive"` e `n_jobs != 1` falham com
-mensagem explícita até M5. O caminho zero-copy exige NumPy contíguo/alinhado;
-Polars e outros formatos entram em M6.
+**Limitações observadas no checkpoint M4:** poda agressiva e execução paralela
+ainda não estavam implementadas. O caminho zero-copy exige NumPy
+contíguo/alinhado; Polars e outros formatos entram em M6.
 
 **Commit:** `feat: implement canonical native boruta selection`
 
 ## M5 — Poda agressiva e paralelismo determinístico
 
-**Status:** pendente.
+**Status:** concluído em 2026-09-27; poda agressiva continua experimental.
 
 **Objetivo:** reduzir trabalho removendo todas as features decididas no modo
 agressivo e limitar overhead e memória por worker.
@@ -343,10 +343,20 @@ limitadas; não usar paralelismo aninhado.
 **Riscos:** remoção de confirmadas destruir interações restantes, rejeições
 precoces irreversíveis e multiplicação do consumo por threads.
 
-- [ ] Invariantes de poda e reprodutibilidade aprovadas.
-- [ ] Tempo, precisão, recall e estabilidade publicados de forma pareada.
-- [ ] Modo permanece experimental até satisfazer o critério de qualidade.
-- [ ] Verificações concluídas, roadmap atualizado, commit e push realizados.
+- [x] Invariantes de poda e reprodutibilidade aprovadas; em 24 comparações
+  pareadas serial/paralelo, as decisões foram idênticas.
+- [x] Tempo, precisão e recall publicados em
+  [`benchmarks/results/m5_pruning_parallel_2026-09-27.json`](../benchmarks/results/m5_pruning_parallel_2026-09-27.json):
+  quatro cenários, três seeds, 12 fits por modo serial e 24 verificações de
+  paridade. A média serial foi 10,21 s canônico e 10,92 s agressivo; os modos
+  tiveram precisão média 0,917 e recall 0,875, com os erros concentrados no
+  cenário XOR. Quatro workers aceleraram os pares em aproximadamente 3,5x.
+- [x] Poda agressiva permanece experimental: neste protocolo ela não mostrou
+  aceleração serial e o conjunto de três seeds não satisfaz o critério de
+  confiança de qualidade definido abaixo.
+- [x] `cargo fmt --all -- --check`, `git diff --check`, `cargo test --workspace`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, build Maturin e
+  `uv run pytest` (51 testes) aprovados. Roadmap atualizado, commit e push.
 
 **Commit:** `perf: add aggressive pruning and deterministic parallelism`
 

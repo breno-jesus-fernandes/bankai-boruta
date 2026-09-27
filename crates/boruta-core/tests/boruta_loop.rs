@@ -1,6 +1,6 @@
 use boruta_core::{
     BorutaConfig, BorutaError, BorutaResult, FeatureDecision, ImportanceProvider, ImportanceScale,
-    MatrixView, MaxFeatures, StopReason, run_boruta,
+    MatrixView, MaxFeatures, PruningMode, StopReason, run_boruta,
 };
 use std::sync::Arc;
 
@@ -45,6 +45,7 @@ fn config() -> BorutaConfig {
         n_estimators: 16,
         max_iter: 30,
         alpha: 0.01,
+        pruning: PruningMode::Canonical,
         max_features: MaxFeatures::Sqrt,
         max_depth: Some(16),
         n_jobs: 1,
@@ -90,6 +91,34 @@ fn canonical_loop_updates_original_ids_and_keeps_confirmed_features_as_context()
     assert_eq!(provider.active_history[9], [0, 2]);
     assert_eq!(result.hit_history.as_ref().unwrap()[0][2], 0);
     assert!(result.hit_history.unwrap().len() == result.n_iter);
+}
+
+#[test]
+fn aggressive_loop_removes_confirmed_features_from_later_training_views() {
+    let mut provider = ScriptedImportance {
+        calls: 0,
+        active_history: Vec::new(),
+        missing_oob: false,
+        wrong_length: false,
+    };
+    let mut cfg = config();
+    cfg.pruning = PruningMode::Aggressive;
+    let rows = 24;
+    let values = (0..rows * 3).map(|value| value as f64).collect::<Vec<_>>();
+    let matrix = MatrixView::new(&values, rows, 3, 3, 1).unwrap();
+    let result = run_boruta(
+        matrix,
+        (0..rows).map(|row| row % 2).collect(),
+        2,
+        &cfg,
+        &mut provider,
+    )
+    .unwrap();
+
+    assert_eq!(result.decisions[0], FeatureDecision::Confirmed);
+    assert_eq!(result.decisions[1], FeatureDecision::Rejected);
+    assert_eq!(result.decisions[2], FeatureDecision::Confirmed);
+    assert_eq!(provider.active_history[9], [2]);
 }
 
 #[test]

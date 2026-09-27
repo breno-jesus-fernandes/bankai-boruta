@@ -2,7 +2,7 @@
 
 use boruta_core::{
     BorutaConfig, ImportanceScale, MatrixView, MaxFeatures, PermutationImportanceProvider,
-    run_boruta,
+    PruningMode, run_boruta,
 };
 use numpy::{Element, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -101,6 +101,7 @@ fn fit_boruta<'py>(
     max_iter: usize,
     alpha: f64,
     max_features: &Bound<'py, PyAny>,
+    pruning: &str,
     max_depth: Option<usize>,
     n_jobs: usize,
     random_state: Option<u64>,
@@ -126,10 +127,16 @@ fn fit_boruta<'py>(
             ));
         }
     };
+    let pruning = match pruning {
+        "canonical" => PruningMode::Canonical,
+        "aggressive" => PruningMode::Aggressive,
+        _ => return Err(PyValueError::new_err("invalid pruning mode")),
+    };
     let config = BorutaConfig {
         n_estimators,
         max_iter,
         alpha,
+        pruning,
         max_features,
         max_depth,
         n_jobs,
@@ -263,6 +270,9 @@ fn result_to_python(
         "non_finite_importance_count",
         result.non_finite_importance_count,
     )?;
+    if let Some(active_counts) = result.active_feature_counts {
+        diagnostics.set_item("active_features_per_iteration", active_counts)?;
+    }
     output.set_item("diagnostics", diagnostics)?;
     if let Some(history) = result.hit_history {
         output.set_item("history", history)?;

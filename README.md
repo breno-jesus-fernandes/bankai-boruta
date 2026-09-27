@@ -7,9 +7,12 @@ The canonical classification selector now runs its complete Boruta iteration
 loop inside Rust. `BankaiBoruta.fit(X, y)` accepts C- or F-contiguous NumPy
 `float32`/`float64` arrays without copying `X`; incompatible numeric inputs can
 use `input_mode="copy"`. Rejected features are pruned between iterations,
-confirmed features remain as context, and unresolved features stay tentative
-when `max_iter` is reached. Aggressive pruning and Polars support are planned
-for later milestones. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for details.
+confirmed features remain as context in canonical mode, and unresolved
+features stay tentative when `max_iter` is reached. `pruning="aggressive"`
+removes confirmed features from subsequent training and is experimental; use it
+only when the benchmarked trade-off is acceptable for your data. Deterministic
+multi-worker training is available with `n_jobs`. See
+[`docs/ROADMAP.md`](docs/ROADMAP.md) for details.
 
 ## Development
 

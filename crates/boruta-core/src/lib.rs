@@ -11,7 +11,7 @@ pub use statistics::{binomial_lower_tail, binomial_upper_tail, decide_from_hits}
 mod boruta;
 pub use boruta::{
     BorutaConfig, BorutaError, BorutaResult, ImportanceProvider, ImportanceScale, MaxFeatures,
-    PermutationImportanceProvider, StopReason, run_boruta,
+    PermutationImportanceProvider, PruningMode, StopReason, run_boruta,
 };
 
 /// The current, irreversible decision for a feature from the original input.

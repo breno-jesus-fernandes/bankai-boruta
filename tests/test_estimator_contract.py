@@ -187,7 +187,7 @@ def test_fit_supports_string_labels_and_multiclass_targets():
     assert fitted.diagnostics_["copied_bytes"] == 0
 
 
-def test_fit_rejects_invalid_class_count_zero_copy_non_arrays_and_aggressive_mode():
+def test_fit_rejects_invalid_class_count_and_non_numpy_zero_copy_inputs():
     import numpy as np
 
     X = np.arange(32, dtype=float).reshape(16, 2)
@@ -201,14 +201,43 @@ def test_fit_rejects_invalid_class_count_zero_copy_non_arrays_and_aggressive_mod
         )
     with pytest.raises(ValueError, match="NumPy ndarray"):
         BankaiBoruta(n_estimators=8, max_iter=1).fit(X.tolist(), np.tile([0, 1], 8))
-    with pytest.raises(ValueError, match="milestone M5"):
-        BankaiBoruta(n_estimators=8, max_iter=1, pruning="aggressive").fit(
-            X, np.tile([0, 1], 8)
-        )
-    with pytest.raises(ValueError, match="parallel training"):
-        BankaiBoruta(n_estimators=8, max_iter=1, n_jobs=2).fit(
-            X, np.tile([0, 1], 8)
-        )
+
+
+def test_aggressive_pruning_fits_and_retains_confirmed_features():
+    import numpy as np
+
+    rng = np.random.default_rng(51)
+    y = np.tile([0, 1], 80)
+    X = np.column_stack(
+        [y + rng.normal(0, 0.02, y.size), rng.normal(size=(y.size, 3))]
+    )
+    fitted = BankaiBoruta(
+        n_estimators=48,
+        max_iter=12,
+        pruning="aggressive",
+        random_state=23,
+        store_history=True,
+    ).fit(X, y)
+
+    assert fitted.support_[0]
+    assert fitted.n_iter_ <= fitted.max_iter
+    assert min(fitted.diagnostics_["active_features_per_iteration"]) < X.shape[1]
+
+
+def test_parallel_fit_is_repeatable_and_matches_serial_decisions():
+    import numpy as np
+
+    rng = np.random.default_rng(61)
+    y = np.tile([0, 1], 80)
+    X = np.column_stack([y + rng.normal(0, 0.05, y.size), rng.normal(size=(y.size, 3))])
+    options = dict(n_estimators=40, max_iter=12, random_state=29, store_history=True)
+    serial = BankaiBoruta(**options).fit(X, y)
+    parallel = BankaiBoruta(**options, n_jobs=4).fit(X, y)
+    repeated = BankaiBoruta(**options, n_jobs=4).fit(X, y)
+
+    assert parallel.decision_.tolist() == serial.decision_.tolist()
+    assert parallel.decision_.tolist() == repeated.decision_.tolist()
+    assert parallel.history_ == repeated.history_
 
 
 def test_fit_crosses_into_native_code_once_for_the_entire_iteration_loop(monkeypatch):

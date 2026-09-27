@@ -51,10 +51,6 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         from . import _core
 
         self._validate_parameters()
-        if self.pruning != "canonical":
-            raise ValueError("pruning='aggressive' will be available in milestone M5")
-        if self.n_jobs != 1:
-            raise ValueError("deterministic parallel training will be available in milestone M5")
         if self.input_mode == "zero_copy" and not isinstance(X, np.ndarray):
             raise ValueError("zero_copy requires a NumPy ndarray; use input_mode='copy'")
         python_materialized_bytes = 0
@@ -84,6 +80,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             self.max_iter,
             float(self.alpha),
             max_features,
+            self.pruning,
             self.max_depth,
             self.n_jobs,
             self.random_state,

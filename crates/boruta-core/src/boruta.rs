@@ -19,11 +19,18 @@ pub enum ImportanceScale {
     ZScore,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PruningMode {
+    Canonical,
+    Aggressive,
+}
+
 #[derive(Clone, Debug)]
 pub struct BorutaConfig {
     pub n_estimators: usize,
     pub max_iter: usize,
     pub alpha: f64,
+    pub pruning: PruningMode,
     pub max_features: MaxFeatures,
     pub max_depth: Option<usize>,
     pub n_jobs: usize,
@@ -46,6 +53,7 @@ pub struct BorutaResult {
     pub undefined_importance_count: usize,
     pub non_finite_importance_count: usize,
     pub hit_history: Option<Vec<Vec<u32>>>,
+    pub active_feature_counts: Option<Vec<usize>>,
 }
 
 #[derive(Debug, Error, Eq, PartialEq)]
@@ -113,7 +121,7 @@ impl<T: Copy + Into<f64> + Send + Sync> ImportanceProvider<T> for PermutationImp
                 max_depth,
             )
         } else {
-            Forest::new_parallel_with_settings(
+            Forest::new_parallel_deterministic_with_settings(
                 &input,
                 config.n_estimators,
                 tries,
@@ -198,6 +206,7 @@ where
     let mut ledger = DecisionLedger::new(columns);
     let mut hits = vec![0_u32; columns];
     let mut hit_history = config.store_history.then(Vec::new);
+    let mut active_feature_counts = config.store_history.then(Vec::new);
     let mut undefined_importance_count = 0;
     let mut non_finite_importance_count = 0;
     let mut n_iter = 0;
@@ -219,9 +228,16 @@ where
             .iter()
             .enumerate()
             .filter_map(|(feature, decision)| {
-                (*decision != FeatureDecision::Rejected).then_some(feature)
+                let active = match config.pruning {
+                    PruningMode::Canonical => *decision != FeatureDecision::Rejected,
+                    PruningMode::Aggressive => *decision == FeatureDecision::Tentative,
+                };
+                active.then_some(feature)
             })
             .collect::<Vec<_>>();
+        if let Some(history) = &mut active_feature_counts {
+            history.push(active.len());
+        }
         let mut active_positions = vec![usize::MAX; columns];
         for (position, &feature) in active.iter().enumerate() {
             active_positions[feature] = position;
@@ -295,6 +311,7 @@ where
         undefined_importance_count,
         non_finite_importance_count,
         hit_history,
+        active_feature_counts,
     })
 }
 
@@ -308,7 +325,7 @@ fn iteration_seed(seed: u64, iteration: usize) -> u64 {
 fn validate_config(config: &BorutaConfig) -> Result<(), BorutaError> {
     if config.n_estimators == 0
         || config.max_iter == 0
-        || config.n_jobs != 1
+        || config.n_jobs == 0
         || config.max_depth == Some(0)
         || !config.alpha.is_finite()
         || !(0.0..1.0).contains(&config.alpha)
