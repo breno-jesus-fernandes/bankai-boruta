@@ -234,7 +234,8 @@ zero-copy de NumPy/Arrow nem reduz a cópia inicial da matriz.
 
 ## M3 — NumPy zero-copy e shadows virtuais
 
-**Status:** pendente.
+**Status:** implementação parcial; bloqueado por divergência de paridade em
+empates de Gini. Detalhes e próximo passo em [M3-LIMITATIONS.md](M3-LIMITATIONS.md).
 
 **Objetivo:** executar uma iteração completa sem materializar a matriz aumentada.
 
