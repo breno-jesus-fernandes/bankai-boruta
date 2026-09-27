@@ -387,14 +387,16 @@ de informação ao selecionar features antes da validação cruzada.
   nomes antigos e pickle sem reter `X`, `y` ou floresta.
 - [ ] Importar buffers Arrow/Polars sem conversão para NumPy; limitação descrita
   em [`docs/limitations/M6-arrow-zero-copy.md`](limitations/M6-arrow-zero-copy.md).
-- [ ] Serialização compacta e sem reconstrução de floresta verificada em wheel.
+- [x] Pickle round-trip do estimador treinado sem matrizes/árvore no estado; fit
+  e import também passam após instalação isolada do wheel e do sdist.
 - [ ] Verificações finais, roadmap atualizado, commit e push de conclusão.
 
 **Commit:** `feat: add polars and sklearn selector integration`
 
 ## M7 — Benchmarks, endurecimento e distribuição
 
-**Status:** pendente.
+**Status:** em andamento; wheel/sdist locais instalados e testados, benchmark
+controlado e matriz de plataformas ainda pendentes.
 
 **Objetivo:** demonstrar desempenho e memória em instalações reproduzíveis.
 
@@ -413,7 +415,10 @@ copiados. `tracemalloc` sozinho não mede as alocações Rust.
 oversubscription e resultados dominados por conversão ou compilação.
 
 - [ ] Protocolo abaixo executado com resultados brutos e relatório versionados.
-- [ ] Suítes dos dois projetos aprovadas e distribuições instaláveis.
+- [x] Distribuições locais instaláveis e smoke test isolado no macOS arm64,
+  Python 3.11; evidências e hashes em
+  [`benchmarks/results/m7_artifact_smoke_2026-09-27.json`](../benchmarks/results/m7_artifact_smoke_2026-09-27.json).
+- [ ] Suítes dos dois projetos aprovadas em todos os alvos suportados.
 - [ ] Limitações e perdas de desempenho registradas, sem seleção de resultados.
 - [ ] Artefatos construídos exclusivamente com Maturin.
 - [ ] Roadmap atualizado, commit e push realizados.
