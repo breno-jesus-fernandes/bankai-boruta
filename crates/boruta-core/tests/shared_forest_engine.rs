@@ -101,7 +101,7 @@ fn borrowed_and_owned_forest_importance_match_across_seeds_and_class_counts() {
             let mut values = Vec::with_capacity(rows * 4);
             let mut labels = Vec::with_capacity(rows);
             for row in 0..rows {
-                let label = ((row * 5 + seed as usize / 2) % n_classes) as usize;
+                let label = (row * 5 + seed as usize / 2) % n_classes;
                 values.extend([
                     label as f64,
                     ((row * 7 + seed as usize) % 17) as f64,
