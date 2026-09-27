@@ -1,6 +1,6 @@
 use boruta_core::{
-    BorutaConfig, BorutaError, BorutaResult, FeatureDecision, ImportanceProvider, ImportanceScale,
-    MatrixView, MaxFeatures, PruningMode, StopReason, run_boruta,
+    BorutaConfig, BorutaError, BorutaResult, FeatureDecision, FeatureStorage, ImportanceProvider,
+    ImportanceScale, LogicalMatrix, MatrixView, MaxFeatures, PruningMode, StopReason, run_boruta,
 };
 use std::sync::Arc;
 
@@ -11,10 +11,10 @@ struct ScriptedImportance {
     wrong_length: bool,
 }
 
-impl<T: Copy + Into<f64> + Send + Sync> ImportanceProvider<T> for ScriptedImportance {
+impl<S: FeatureStorage + Send + Sync> ImportanceProvider<S> for ScriptedImportance {
     fn compute(
         &mut self,
-        matrix: MatrixView<'_, T>,
+        matrix: LogicalMatrix<S>,
         _: Arc<Vec<usize>>,
         _: usize,
         active_features: &[usize],

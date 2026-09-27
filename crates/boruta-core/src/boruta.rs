@@ -1,5 +1,8 @@
 use crate::statistics::decision_table;
-use crate::{DecisionLedger, FeatureDecision, MatrixForestInput, MatrixView, MatrixViewError};
+use crate::{
+    DecisionLedger, FeatureDecision, FeatureStorage, LogicalMatrix, MatrixForestInput,
+    MatrixViewError,
+};
 use bankai_forest_core::xrf::Forest;
 use std::sync::Arc;
 use thiserror::Error;
@@ -78,10 +81,10 @@ pub enum BorutaError {
 
 /// Pluggable source of one aggregate importance vector per Boruta iteration.
 /// Implementations stay in Rust; Python callbacks are intentionally excluded.
-pub trait ImportanceProvider<T: Copy + Into<f64> + Send + Sync> {
+pub trait ImportanceProvider<S: FeatureStorage + Send + Sync> {
     fn compute(
         &mut self,
-        matrix: MatrixView<'_, T>,
+        matrix: LogicalMatrix<S>,
         labels: Arc<Vec<usize>>,
         n_classes: usize,
         active_features: &[usize],
@@ -93,10 +96,10 @@ pub trait ImportanceProvider<T: Copy + Into<f64> + Send + Sync> {
 #[derive(Default)]
 pub struct PermutationImportanceProvider;
 
-impl<T: Copy + Into<f64> + Send + Sync> ImportanceProvider<T> for PermutationImportanceProvider {
+impl<S: FeatureStorage + Send + Sync> ImportanceProvider<S> for PermutationImportanceProvider {
     fn compute(
         &mut self,
-        matrix: MatrixView<'_, T>,
+        matrix: LogicalMatrix<S>,
         labels: Arc<Vec<usize>>,
         n_classes: usize,
         active_features: &[usize],
@@ -166,16 +169,16 @@ fn resolve_max_features(spec: MaxFeatures, columns: usize) -> usize {
     count.clamp(1, columns)
 }
 
-pub fn run_boruta<T, P>(
-    matrix: MatrixView<'_, T>,
+pub fn run_boruta<S, P>(
+    matrix: LogicalMatrix<S>,
     labels: Vec<usize>,
     n_classes: usize,
     config: &BorutaConfig,
     provider: &mut P,
 ) -> Result<BorutaResult, BorutaError>
 where
-    T: Copy + Into<f64> + Send + Sync,
-    P: ImportanceProvider<T>,
+    S: FeatureStorage + Send + Sync,
+    P: ImportanceProvider<S>,
 {
     validate_config(config)?;
     let (rows, columns) = matrix.shape();

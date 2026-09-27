@@ -113,19 +113,47 @@ struct ColumnView {
     row_permutation: Option<std::sync::Arc<[usize]>>,
 }
 
-/// Borrowed strided matrix plus a logical feature map; shadow columns stay virtual.
+/// Read-only physical storage. Cloning shares value buffers; logical shadows live above it.
+pub trait FeatureStorage: Clone {
+    fn shape(&self) -> (usize, usize);
+    fn value(&self, row: usize, column: usize) -> Option<f64>;
+}
+
 #[derive(Clone, Debug)]
-pub struct MatrixView<'a, T = f64>
-where
-    T: Copy + Into<f64>,
-{
+pub struct StridedStorage<'a, T: Copy + Into<f64>> {
     values: &'a [T],
     rows: usize,
-    source_features: usize,
+    columns: usize,
     row_stride: usize,
     column_stride: usize,
+}
+
+impl<T: Copy + Into<f64>> FeatureStorage for StridedStorage<'_, T> {
+    fn shape(&self) -> (usize, usize) {
+        (self.rows, self.columns)
+    }
+    fn value(&self, row: usize, column: usize) -> Option<f64> {
+        if row >= self.rows || column >= self.columns {
+            return None;
+        }
+        self.values
+            .get(row * self.row_stride + column * self.column_stride)
+            .copied()
+            .map(Into::into)
+    }
+}
+
+/// Logical feature map over shared storage; shadow columns stay virtual.
+#[derive(Clone, Debug)]
+pub struct LogicalMatrix<S: FeatureStorage> {
+    storage: S,
+    rows: usize,
+    source_features: usize,
     columns: Vec<ColumnView>,
 }
+
+/// Backwards-compatible constructor for borrowed NumPy-style strided storage.
+pub type MatrixView<'a, T = f64> = LogicalMatrix<StridedStorage<'a, T>>;
 
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum MatrixForestInputError {
@@ -139,21 +167,15 @@ pub enum MatrixForestInputError {
 
 /// XRF adapter for a borrowed logical matrix and owned, shared classification labels.
 #[derive(Clone)]
-pub struct MatrixForestInput<'a, T = f64>
-where
-    T: Copy + Into<f64>,
-{
-    matrix: MatrixView<'a, T>,
+pub struct MatrixForestInput<S: FeatureStorage> {
+    matrix: LogicalMatrix<S>,
     labels: std::sync::Arc<Vec<usize>>,
     n_classes: usize,
 }
 
-impl<'a, T> MatrixForestInput<'a, T>
-where
-    T: Copy + Into<f64>,
-{
+impl<S: FeatureStorage> MatrixForestInput<S> {
     pub fn new(
-        matrix: MatrixView<'a, T>,
+        matrix: LogicalMatrix<S>,
         labels: Vec<usize>,
         n_classes: usize,
     ) -> Result<Self, MatrixForestInputError> {
@@ -161,7 +183,7 @@ where
     }
 
     pub fn new_shared(
-        matrix: MatrixView<'a, T>,
+        matrix: LogicalMatrix<S>,
         labels: std::sync::Arc<Vec<usize>>,
         n_classes: usize,
     ) -> Result<Self, MatrixForestInputError> {
@@ -181,7 +203,7 @@ where
         })
     }
 
-    pub fn matrix(&self) -> &MatrixView<'a, T> {
+    pub fn matrix(&self) -> &LogicalMatrix<S> {
         &self.matrix
     }
 }
@@ -198,11 +220,11 @@ impl MatrixVotes {
     }
 }
 
-impl<T> bankai_forest_core::xrf::VoteAggregator<MatrixForestInput<'_, T>> for MatrixVotes
+impl<S> bankai_forest_core::xrf::VoteAggregator<MatrixForestInput<S>> for MatrixVotes
 where
-    T: Copy + Into<f64>,
+    S: FeatureStorage,
 {
-    fn new(input: &MatrixForestInput<'_, T>) -> Self {
+    fn new(input: &MatrixForestInput<S>) -> Self {
         Self {
             classes: vec![0; input.n_classes],
             observations: 0,
@@ -258,11 +280,51 @@ where
             }
         }
         Ok(Self {
-            values,
+            storage: StridedStorage {
+                values,
+                rows,
+                columns: source_features,
+                row_stride,
+                column_stride,
+            },
             rows,
             source_features,
-            row_stride,
-            column_stride,
+            columns: (0..source_features)
+                .map(|source_feature| ColumnView {
+                    source_feature,
+                    row_permutation: None,
+                })
+                .collect(),
+        })
+    }
+
+    /// Diagnostic that verifies this view still points to the caller's buffer.
+    pub fn shares_storage_with(&self, values: &[T]) -> bool {
+        std::ptr::eq(self.storage.values.as_ptr(), values.as_ptr())
+            && self.storage.values.len() == values.len()
+    }
+}
+
+impl<S: FeatureStorage> LogicalMatrix<S> {
+    pub fn from_storage(storage: S) -> Result<Self, MatrixViewError> {
+        let (rows, source_features) = storage.shape();
+        if rows == 0 || source_features == 0 {
+            return Err(MatrixViewError::EmptyShape);
+        }
+        for feature in 0..source_features {
+            for row in 0..rows {
+                let value = storage
+                    .value(row, feature)
+                    .ok_or(MatrixViewError::BufferTooSmall)?;
+                if !value.is_finite() {
+                    return Err(MatrixViewError::NonFiniteValue { row, feature });
+                }
+            }
+        }
+        Ok(Self {
+            storage,
+            rows,
+            source_features,
             columns: (0..source_features)
                 .map(|source_feature| ColumnView {
                     source_feature,
@@ -326,11 +388,9 @@ where
             });
         }
         Ok(Self {
-            values: self.values,
+            storage: self.storage.clone(),
             rows: self.rows,
             source_features: self.source_features,
-            row_stride: self.row_stride,
-            column_stride: self.column_stride,
             columns,
         })
     }
@@ -376,13 +436,7 @@ where
             .row_permutation
             .as_ref()
             .map_or(row, |permutation| permutation[row]);
-        let offset = source_row * self.row_stride + column.source_feature * self.column_stride;
-        self.values.get(offset).copied().map(Into::into)
-    }
-
-    /// Diagnostic that verifies this view still points to the caller's buffer.
-    pub fn shares_storage_with(&self, values: &[T]) -> bool {
-        std::ptr::eq(self.values.as_ptr(), values.as_ptr()) && self.values.len() == values.len()
+        self.storage.value(source_row, column.source_feature)
     }
 }
 
@@ -457,9 +511,9 @@ pub struct MatrixFeatureSampler {
     feature_count: usize,
 }
 
-impl<T> bankai_forest_core::xrf::FeatureSampler<MatrixForestInput<'_, T>> for MatrixFeatureSampler
+impl<S> bankai_forest_core::xrf::FeatureSampler<MatrixForestInput<S>> for MatrixFeatureSampler
 where
-    T: Copy + Into<f64>,
+    S: FeatureStorage,
 {
     fn random_feature(&mut self, rng: &mut bankai_forest_core::xrf::RfRng) -> usize {
         rng.up_to(self.feature_count)
@@ -477,12 +531,12 @@ pub struct MatrixImportance {
     labels: Arc<Vec<usize>>,
 }
 
-impl<T> bankai_forest_core::xrf::AccuracyDecreaseAggregator<MatrixForestInput<'_, T>>
+impl<S> bankai_forest_core::xrf::AccuracyDecreaseAggregator<MatrixForestInput<S>>
     for MatrixImportance
 where
-    T: Copy + Into<f64>,
+    S: FeatureStorage,
 {
-    fn new(input: &MatrixForestInput<'_, T>, on: &bankai_forest_core::xrf::Mask, n: usize) -> Self {
+    fn new(input: &MatrixForestInput<S>, on: &bankai_forest_core::xrf::Mask, n: usize) -> Self {
         Self {
             direct: vec![None; n],
             drops: HashMap::new(),
@@ -533,9 +587,9 @@ where
     }
 }
 
-impl<T> bankai_forest_core::xrf::RfInput for MatrixForestInput<'_, T>
+impl<S> bankai_forest_core::xrf::RfInput for MatrixForestInput<S>
 where
-    T: Copy + Into<f64>,
+    S: FeatureStorage,
 {
     type FeatureId = usize;
     type Pivot = f64;
