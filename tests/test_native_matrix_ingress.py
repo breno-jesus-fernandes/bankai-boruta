@@ -73,3 +73,12 @@ def test_copy_mode_is_explicit_and_invalid_modes_fail():
 def test_matrix_ingress_requires_a_nonempty_two_dimensional_array(X):
     with pytest.raises((TypeError, ValueError)):
         _core.inspect_matrix(X)
+
+
+def test_rejects_unaligned_numpy_buffer_before_borrowing():
+    source = bytearray(8 * 12 + 1)
+    unaligned = np.ndarray((6, 2), dtype=np.float64, buffer=source, offset=1)
+    assert unaligned.flags.c_contiguous
+    assert not unaligned.flags.aligned
+    with pytest.raises(ValueError, match="aligned"):
+        _core.inspect_matrix(unaligned)

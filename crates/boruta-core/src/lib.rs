@@ -6,6 +6,14 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use thiserror::Error;
 
+mod statistics;
+pub use statistics::{binomial_lower_tail, binomial_upper_tail, decide_from_hits};
+mod boruta;
+pub use boruta::{
+    BorutaConfig, BorutaError, BorutaResult, ImportanceProvider, ImportanceScale, MaxFeatures,
+    PermutationImportanceProvider, StopReason, run_boruta,
+};
+
 /// The current, irreversible decision for a feature from the original input.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FeatureDecision {
@@ -149,6 +157,14 @@ where
         labels: Vec<usize>,
         n_classes: usize,
     ) -> Result<Self, MatrixForestInputError> {
+        Self::new_shared(matrix, std::sync::Arc::new(labels), n_classes)
+    }
+
+    pub fn new_shared(
+        matrix: MatrixView<'a, T>,
+        labels: std::sync::Arc<Vec<usize>>,
+        n_classes: usize,
+    ) -> Result<Self, MatrixForestInputError> {
         if labels.len() != matrix.rows {
             return Err(MatrixForestInputError::TargetLength);
         }
@@ -160,7 +176,7 @@ where
         }
         Ok(Self {
             matrix,
-            labels: std::sync::Arc::new(labels),
+            labels,
             n_classes,
         })
     }
@@ -171,24 +187,38 @@ where
 }
 
 #[derive(Clone)]
-pub struct MatrixVotes(Vec<usize>);
+pub struct MatrixVotes {
+    classes: Vec<usize>,
+    observations: usize,
+}
+
+impl MatrixVotes {
+    pub fn observations(&self) -> usize {
+        self.observations
+    }
+}
 
 impl<T> bankai_forest_core::xrf::VoteAggregator<MatrixForestInput<'_, T>> for MatrixVotes
 where
     T: Copy + Into<f64>,
 {
     fn new(input: &MatrixForestInput<'_, T>) -> Self {
-        Self(vec![0; input.n_classes])
+        Self {
+            classes: vec![0; input.n_classes],
+            observations: 0,
+        }
     }
 
     fn ingest_vote(&mut self, vote: usize) {
-        self.0[vote] += 1;
+        self.classes[vote] += 1;
+        self.observations += 1;
     }
 
     fn merge(&mut self, other: &Self) {
-        for (into, from) in self.0.iter_mut().zip(&other.0) {
+        for (into, from) in self.classes.iter_mut().zip(&other.classes) {
             *into += *from;
         }
+        self.observations += other.observations;
     }
 }
 

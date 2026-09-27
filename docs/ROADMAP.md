@@ -191,7 +191,8 @@ ledger não escolhe decisões estatísticas ainda; isso será coberto pelo TDD d
 
 **Status:** concluído em 2026-09-27. O crate `bankai-forest-core` foi extraído
 e enviado no commit `6b0649f` à branch `codex/shared-core-extraction` do
-repositório bankai-random-forest; este projeto fixa exatamente essa revisão.
+repositório bankai-random-forest; M3 atualizou o pin para `ab90aa7` após
+compartilhar o splitter exato.
 
 **Objetivo:** extrair o motor sem PyO3 e sem duplicar o algoritmo da floresta.
 
@@ -262,9 +263,13 @@ correlações indevidas e mutação externa invalidar o empréstimo.
 
 **Commit:** `feat: add zero-copy numpy input and virtual shadows`
 
+Commit de conclusão: `1466e6f`.
+
 ## M4 — Boruta canônico completo
 
-**Status:** pendente.
+**Status:** concluído em 2026-09-27.
+`BankaiBoruta.fit` faz uma única chamada PyO3 e executa todas as iterações em
+Rust, com permutation importance OOB do core compartilhado.
 
 **Objetivo:** implementar o loop nativo com inferência estatística de referência.
 
@@ -297,10 +302,23 @@ histórico opcional `O(Tp)`, sem matrizes SHAP.
 **Riscos:** normalização incorreta, OOB insuficiente e interpretação indevida de
 testes repetidos como garantia sequencial global.
 
-- [ ] Decisões iguais ao oráculo para as mesmas sequências de importância.
-- [ ] Limite de iterações exato e ausência de resolução heurística de tentativas.
-- [ ] Seletor funcional ponta a ponta.
-- [ ] Verificações concluídas, roadmap atualizado, commit e push realizados.
+- [x] Caudas binomiais inclusivas e Bonferroni contra IDs originais, com
+  comparação estrita e decisão de hits pré-computada por iteração.
+- [x] Testes de referência cobrem frações exatas, underflow, limites de alpha,
+  multiclasse, decisões simultâneas, empates e parada exata em `max_iter`.
+- [x] Seleção funcional: sombras virtuais, score zscore/raw, OOB, poda de
+  rejeitadas, confirmadas preservadas como contexto e tentativas não resolvidas.
+- [x] Testes Python cobrem sinais fortes/nulos, uma feature, rótulos string e
+  multiclasse, determinismo seeded, C/F, f32/f64, cópia explícita e uma chamada
+  nativa total.
+- [x] `cargo fmt --all -- --check`, `cargo test --workspace` (30 testes),
+  `cargo clippy --workspace --all-targets -- -D warnings`, build Maturin e
+  `uv run pytest` (49 testes) aprovados.
+- [x] Roadmap atualizado, commit e push realizados.
+
+**Limitações nesta fase:** `pruning="aggressive"` e `n_jobs != 1` falham com
+mensagem explícita até M5. O caminho zero-copy exige NumPy contíguo/alinhado;
+Polars e outros formatos entram em M6.
 
 **Commit:** `feat: implement canonical native boruta selection`
 

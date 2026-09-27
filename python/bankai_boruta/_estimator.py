@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from numbers import Integral, Real
+from math import isfinite
 from typing import Any
 
 from sklearn.base import BaseEstimator
@@ -11,12 +12,7 @@ from sklearn.utils.validation import check_is_fitted
 
 
 class BankaiBoruta(SelectorMixin, BaseEstimator):
-    """Select all relevant features with the native Bankai Boruta engine.
-
-    The public estimator contract is established before the native selection
-    loop is available. Calling ``fit`` in this development milestone fails
-    explicitly rather than returning an unfitted estimator.
-    """
+    """Select relevant numeric features with the native Bankai Boruta engine."""
 
     def __init__(
         self,
@@ -48,7 +44,72 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         self._validate_parameters()
 
     def fit(self, X: Any, y: Any) -> BankaiBoruta:
-        raise RuntimeError("native Boruta engine is not available before milestone M4")
+        import numpy as np
+        from sklearn.utils.multiclass import check_classification_targets
+        from sklearn.utils.validation import check_array
+
+        from . import _core
+
+        self._validate_parameters()
+        if self.pruning != "canonical":
+            raise ValueError("pruning='aggressive' will be available in milestone M5")
+        if self.n_jobs != 1:
+            raise ValueError("deterministic parallel training will be available in milestone M5")
+        if self.input_mode == "zero_copy" and not isinstance(X, np.ndarray):
+            raise ValueError("zero_copy requires a NumPy ndarray; use input_mode='copy'")
+        python_materialized_bytes = 0
+        X_array = np.asarray(X)
+        if self.input_mode == "copy" and not isinstance(X, np.ndarray):
+            python_materialized_bytes = int(X_array.nbytes)
+        y_array = np.asarray(y)
+        if X_array.ndim != 2 or y_array.ndim != 1:
+            raise ValueError("X must be 2D and y must be 1D")
+        if X_array.shape[0] != y_array.shape[0]:
+            raise ValueError("X and y must contain the same number of rows")
+        y_array = check_array(y_array, ensure_2d=False, dtype=None)
+        check_classification_targets(y_array)
+        classes, encoded_y = np.unique(y_array, return_inverse=True)
+        if classes.size < 2:
+            raise ValueError("classification requires at least two classes")
+        encoded_y = np.ascontiguousarray(encoded_y, dtype=np.int64)
+        if isinstance(self.max_features, str) or self.max_features is None:
+            max_features = self.max_features
+        else:
+            max_features = float(self.max_features) if isinstance(self.max_features, float) else int(self.max_features)
+        result = _core.fit_boruta(
+            X_array,
+            encoded_y,
+            int(classes.size),
+            self.n_estimators,
+            self.max_iter,
+            float(self.alpha),
+            max_features,
+            self.max_depth,
+            self.n_jobs,
+            self.random_state,
+            self.importance_scale,
+            self.store_history,
+            self.input_mode,
+        )
+
+        decisions = np.asarray(result["decisions"], dtype=np.uint8)
+        self.support_ = decisions == 1
+        self.support_weak_ = decisions == 2
+        self.decision_ = decisions
+        self.n_features_in_ = X_array.shape[1]
+        if hasattr(X, "columns") and all(isinstance(name, str) for name in X.columns):
+            self.feature_names_in_ = np.asarray(X.columns, dtype=object)
+        elif hasattr(self, "feature_names_in_"):
+            del self.feature_names_in_
+        self.n_iter_ = result["n_iter"]
+        self.stop_reason_ = result["stop_reason"]
+        self.diagnostics_ = result["diagnostics"]
+        self.diagnostics_["copied_bytes"] += python_materialized_bytes
+        if self.store_history:
+            self.history_ = result["history"]
+        elif hasattr(self, "history_"):
+            del self.history_
+        return self
 
     def _validate_parameters(self) -> None:
         for name, value in (("n_estimators", self.n_estimators), ("max_iter", self.max_iter), ("max_depth", self.max_depth)):
@@ -73,6 +134,8 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         elif self.max_features is not None:
             if isinstance(self.max_features, bool) or not isinstance(self.max_features, Real) or self.max_features <= 0:
                 raise ValueError("max_features must be 'sqrt', 'log2', a positive number, or None")
+            if not isfinite(float(self.max_features)):
+                raise ValueError("max_features must be finite")
             if isinstance(self.max_features, float) and self.max_features > 1:
                 raise ValueError("a floating max_features value must be at most 1")
         if isinstance(self.n_jobs, bool) or not isinstance(self.n_jobs, Integral) or self.n_jobs < 1:
@@ -81,6 +144,8 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             isinstance(self.random_state, bool) or not isinstance(self.random_state, Integral)
         ):
             raise ValueError("random_state must be an integer or None")
+        if self.random_state is not None and self.random_state < 0:
+            raise ValueError("random_state must be non-negative")
         if not isinstance(self.store_history, bool):
             raise ValueError("store_history must be a bool")
 
