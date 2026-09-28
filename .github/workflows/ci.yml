@@ -71,7 +71,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Install project and test dependencies
-        run: uv sync --locked --extra test --extra arrow-test --no-install-project
+        run: uv sync --locked --extra test --extra arrow-test
 
       - name: Build and install the native extension
         run: uv run --no-sync maturin develop --release --locked --skip-install
