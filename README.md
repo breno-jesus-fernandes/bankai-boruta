@@ -64,38 +64,69 @@ allocations internal to third-party exporters. Labels, shadow indices, chunk
 metadata and forest workspaces still allocate. Keep inputs unchanged during fit.
 PyArrow is not a runtime dependency.
 
-## Optional scikit-learn estimator
+## Feature selection with Bankai Random Forest
 
-The default `BankaiBoruta()` continues to use the native Rust forest and does
-not call Python inside the iteration loop. To use a scikit-learn estimator,
-pass a cloneable classifier that exposes `feature_importances_`:
+By default, `BankaiBoruta` uses its built-in Rust forest for Boruta selection.
+The selected columns can then be used to train a `BankaiRandomForestClassifier`
+model. Install both packages in the same environment:
 
-```python
-from bankai_boruta import BankaiBoruta
-from sklearn.ensemble import ExtraTreesClassifier
-
-selector = BankaiBoruta(
-    estimator=ExtraTreesClassifier(n_estimators=64, random_state=42),
-    importance_getter="auto",
-    random_state=42,
-)
-selector.fit(X, y)
+```bash
+python -m pip install bankai-boruta==0.1.0a1 bankai-random-forest==0.1.0a1
 ```
 
-Bankai still owns the Boruta controller, shadow generation, pruning and
-statistical decisions in Rust. The opt-in path clones and fits the Python
-estimator once per iteration on a C-contiguous matrix containing active real
-features followed by shadows. This requires a Python callback and materializes
-that augmented matrix on every iteration, so it trades speed and memory for
-model flexibility. `diagnostics_["copied_bytes"]` counts those matrix bytes;
+This example splits the data before selection, so the test set does not affect
+which features Boruta accepts:
+
+```python
+import numpy as np
+from sklearn.datasets import make_classification
+from sklearn.model_selection import train_test_split
+
+from bankai_boruta import BankaiBoruta
+from bankai_random_forest import BankaiRandomForestClassifier
+
+X, y = make_classification(
+    n_samples=800, n_features=20, n_informative=5, n_redundant=0,
+    random_state=42,
+)
+feature_names = np.asarray([f"feature_{i:02d}" for i in range(X.shape[1])])
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.25, random_state=42, stratify=y
+)
+
+# No estimator argument: Boruta uses its built-in native Rust forest.
+selector = BankaiBoruta(n_estimators=300, max_iter=100, random_state=42)
+selector.fit(X_train, y_train)
+
+accepted = feature_names[selector.support_]
+tentative = feature_names[selector.support_weak_]
+print("Accepted:", accepted.tolist())
+print("Still tentative:", tentative.tolist())
+
+X_train_selected = selector.transform(X_train)
+X_test_selected = selector.transform(X_test)
+model = BankaiRandomForestClassifier(n_estimators=300, random_state=42)
+model.fit(X_train_selected, y_train)
+print("Test accuracy:", model.score(X_test_selected, y_test))
+```
+
+The complete scripts, including a version that supplies
+`BankaiRandomForestClassifier` as Boruta's optional estimator, are in
+[`examples/`](examples/).
+
+## Optional Python estimator
+
+To use a different scikit-learn-compatible classifier, pass a cloneable
+estimator that exposes `feature_importances_`. Bankai keeps the Boruta
+controller, shadow generation, pruning and statistical decisions in Rust, but
+fits the Python estimator once per iteration on a materialized matrix of active
+features and shadows. This callback path trades speed and memory for model
+flexibility. `diagnostics_["copied_bytes"]` counts those matrix bytes;
 `external_estimator_calls` and `external_estimator_seconds` report callback
-count and time, while `fit_time_seconds` reports total selector fit time. The
-estimator template is not fitted or otherwise mutated. At present,
+count and time. The estimator template is not fitted or otherwise mutated.
 `importance_getter="auto"` reads `feature_importances_`, falling back to
-`coef_` and summing absolute coefficients across classes. A dotted attribute
-path or callable can supply custom scores. Getters must return one finite,
-non-negative score per augmented input column. The native mode remains the
-recommended default for performance and zero-copy input.
+`coef_`; a dotted attribute path or callable can provide custom scores. Getters
+must return one finite, non-negative score per augmented input column.
 
 The Arrow development suite must run with its optional dependencies installed:
 
