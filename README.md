@@ -64,6 +64,39 @@ allocations internal to third-party exporters. Labels, shadow indices, chunk
 metadata and forest workspaces still allocate. Keep inputs unchanged during fit.
 PyArrow is not a runtime dependency.
 
+## Optional scikit-learn estimator
+
+The default `BankaiBoruta()` continues to use the native Rust forest and does
+not call Python inside the iteration loop. To use a scikit-learn estimator,
+pass a cloneable classifier that exposes `feature_importances_`:
+
+```python
+from bankai_boruta import BankaiBoruta
+from sklearn.ensemble import ExtraTreesClassifier
+
+selector = BankaiBoruta(
+    estimator=ExtraTreesClassifier(n_estimators=64, random_state=42),
+    importance_getter="auto",
+    random_state=42,
+)
+selector.fit(X, y)
+```
+
+Bankai still owns the Boruta controller, shadow generation, pruning and
+statistical decisions in Rust. The opt-in path clones and fits the Python
+estimator once per iteration on a C-contiguous matrix containing active real
+features followed by shadows. This requires a Python callback and materializes
+that augmented matrix on every iteration, so it trades speed and memory for
+model flexibility. `diagnostics_["copied_bytes"]` counts those matrix bytes;
+`external_estimator_calls` and `external_estimator_seconds` report callback
+count and time, while `fit_time_seconds` reports total selector fit time. The
+estimator template is not fitted or otherwise mutated. At present,
+`importance_getter="auto"` reads `feature_importances_`, falling back to
+`coef_` and summing absolute coefficients across classes. A dotted attribute
+path or callable can supply custom scores. Getters must return one finite,
+non-negative score per augmented input column. The native mode remains the
+recommended default for performance and zero-copy input.
+
 The Arrow development suite must run with its optional dependencies installed:
 
 ```bash

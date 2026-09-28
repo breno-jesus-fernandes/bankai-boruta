@@ -79,8 +79,17 @@ pub enum BorutaError {
     MatrixView(#[from] MatrixViewError),
 }
 
+/// Importance scores and provider-specific evidence for one iteration.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImportanceOutput {
+    pub scores: Vec<f64>,
+    /// `Some(false)` means an OOB provider failed to produce evidence;
+    /// `None` means OOB evidence is not part of this provider's contract.
+    pub valid_oob: Option<bool>,
+    pub undefined_count: usize,
+}
+
 /// Pluggable source of one aggregate importance vector per Boruta iteration.
-/// Implementations stay in Rust; Python callbacks are intentionally excluded.
 pub trait ImportanceProvider<S: FeatureStorage + Send + Sync> {
     fn compute(
         &mut self,
@@ -90,7 +99,7 @@ pub trait ImportanceProvider<S: FeatureStorage + Send + Sync> {
         active_features: &[usize],
         config: &BorutaConfig,
         seed: u64,
-    ) -> Result<(Vec<f64>, bool, usize), BorutaError>;
+    ) -> Result<ImportanceOutput, BorutaError>;
 }
 
 #[derive(Default)]
@@ -105,7 +114,7 @@ impl<S: FeatureStorage + Send + Sync> ImportanceProvider<S> for PermutationImpor
         active_features: &[usize],
         config: &BorutaConfig,
         seed: u64,
-    ) -> Result<(Vec<f64>, bool, usize), BorutaError> {
+    ) -> Result<ImportanceOutput, BorutaError> {
         let matrix = matrix.with_shuffled_shadows(active_features, seed.rotate_left(17))?;
         let input = MatrixForestInput::new_shared(matrix.clone(), labels, n_classes)
             .map_err(|error| BorutaError::ForestInput(error.to_string()))?;
@@ -154,7 +163,11 @@ impl<S: FeatureStorage + Send + Sync> ImportanceProvider<S> for PermutationImpor
                 *slot = score;
             }
         }
-        Ok((scores, valid_oob, undefined))
+        Ok(ImportanceOutput {
+            scores,
+            valid_oob: Some(valid_oob),
+            undefined_count: undefined,
+        })
     }
 }
 
@@ -246,7 +259,7 @@ where
             active_positions[feature] = position;
         }
         let seed = iteration_seed(config.random_state, iteration);
-        let (mut scores, valid_oob, undefined) = provider.compute(
+        let output = provider.compute(
             matrix.clone(),
             Arc::clone(&labels),
             n_classes,
@@ -255,9 +268,10 @@ where
             seed,
         )?;
         n_iter += 1;
-        if !valid_oob {
+        if output.valid_oob == Some(false) {
             return Err(BorutaError::NoOobEvidence { iteration });
         }
+        let mut scores = output.scores;
         let shadow_count = active.len().max(5);
         let expected = active.len() + shadow_count;
         if scores.len() != expected {
@@ -266,7 +280,7 @@ where
                 actual: scores.len(),
             });
         }
-        undefined_importance_count += undefined;
+        undefined_importance_count += output.undefined_count;
         for score in &mut scores {
             if !score.is_finite() {
                 *score = 0.0;

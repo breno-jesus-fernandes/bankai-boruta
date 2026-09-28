@@ -28,6 +28,8 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         n_jobs: int = 1,
         random_state: int | None = None,
         store_history: bool = False,
+        estimator: Any = None,
+        importance_getter: Any = "auto",
     ) -> None:
         self.n_estimators = n_estimators
         self.max_iter = max_iter
@@ -41,14 +43,18 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         self.n_jobs = n_jobs
         self.random_state = random_state
         self.store_history = store_history
+        self.estimator = estimator
+        self.importance_getter = importance_getter
         self._validate_parameters()
 
     def fit(self, X: Any, y: Any) -> BankaiBoruta:
         import numpy as np
+        import time
         from sklearn.utils.multiclass import check_classification_targets
         from sklearn.utils.validation import check_array
 
         from . import _core
+        fit_started = time.perf_counter()
 
         # A failed refit must not expose stale fitted state from the preceding fit.
         for name in tuple(vars(self)):
@@ -99,6 +105,8 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             self.importance_scale,
             self.store_history,
             native_mode,
+            self.estimator,
+            self.importance_getter,
         )
 
         decisions = np.asarray(result["decisions"], dtype=np.uint8)
@@ -116,6 +124,8 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         self.stop_reason_ = result["stop_reason"]
         self.diagnostics_ = result["diagnostics"]
         self.diagnostics_["copied_bytes"] += materialized_bytes
+        if self.estimator is not None:
+            self.diagnostics_["fit_time_seconds"] = time.perf_counter() - fit_started
         if self.store_history:
             self.history_ = result["history"]
         elif hasattr(self, "history_"):
@@ -159,6 +169,15 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             raise ValueError("random_state must be non-negative")
         if not isinstance(self.store_history, bool):
             raise ValueError("store_history must be a bool")
+        if not (
+            callable(self.importance_getter)
+            or isinstance(self.importance_getter, str)
+            and bool(self.importance_getter)
+            and all(self.importance_getter.split("."))
+        ):
+            raise ValueError(
+                "importance_getter must be 'auto', a dotted attribute path, or callable"
+            )
 
     def _get_support_mask(self):
         check_is_fitted(self, "support_")

@@ -78,6 +78,28 @@ def test_fit_does_not_retain_polars_owner_and_pickle_roundtrip():
     assert restored.feature_names_in_.tolist() == ['signal', 'noise']
 
 
+def test_external_estimator_materializes_only_active_arrow_columns_per_iteration():
+    from sklearn.tree import DecisionTreeClassifier
+
+    X, y = frame(8)
+    rows = X.height
+    selector = BankaiBoruta(
+        estimator=DecisionTreeClassifier(max_depth=3, random_state=5),
+        n_estimators=8,
+        max_iter=2,
+        random_state=6,
+        store_history=True,
+    ).fit(X, y)
+
+    expected_bytes = sum(
+        rows * (active + max(active, 5)) * 8
+        for active in selector.diagnostics_["active_features_per_iteration"]
+    )
+    assert selector.diagnostics_["external_estimator_calls"] == selector.n_iter_
+    assert selector.diagnostics_["copied_bytes"] == expected_bytes
+    assert selector.feature_names_in_.tolist() == ["signal", "noise"]
+
+
 def test_failed_refit_clears_previous_fitted_state():
     X, y = frame()
     model = BankaiBoruta(n_estimators=4, max_iter=1).fit(X, y)
@@ -192,7 +214,9 @@ def test_copy_mode_float_polars_materializes_only_one_matrix(monkeypatch):
     original = _core.fit_boruta
     def counted(*args):
         assert isinstance(args[0], np.ndarray)
-        assert args[-1] == 'zero_copy'  # The already materialized buffer must be borrowed.
+        assert args[-3] == 'zero_copy'  # The already materialized buffer must be borrowed.
+        assert args[-2] is None  # Native estimator remains the default.
+        assert args[-1] == 'auto'
         return original(*args)
     monkeypatch.setattr(_core, 'fit_boruta', counted)
     X, y = frame(8)

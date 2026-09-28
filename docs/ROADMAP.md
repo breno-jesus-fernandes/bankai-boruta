@@ -457,7 +457,9 @@ registro de pacotes não é pré-requisito e exige configuração própria de re
 
 ## M8 — Estimador scikit-learn opcional, preservando o caminho nativo
 
-**Status:** planejado; implementação não iniciada.
+**Status:** concluído em 2026-09-27. M8.0–M8.4 implementados, verificados e
+documentados. O escopo Miri e o teste upstream interrompido estão em
+[`docs/limitations/M8-miri-scope.md`](limitations/M8-miri-scope.md).
 
 **Decisão de arquitetura:** `BankaiBoruta()` sem estimador externo mantém o
 provider Bankai/XRF em Rust como caminho padrão. Esse caminho continua com
@@ -488,7 +490,7 @@ fit e reutilizado. O diagnóstico separa bytes materializados, número/tempo de
 callbacks e tempo total; cópias adicionais feitas pelo próprio estimador não
 podem ser garantidas nem evitadas pelo Bankai.
 
-### M8.0 — Contratos e testes antes do adapter
+### M8.0 — Contratos e testes antes do adapter (concluído)
 
 - **Objetivo:** separar no core a validade OOB, específica do provider atual,
   do contrato genérico de scores por feature. Preservar cardinalidade,
@@ -507,7 +509,23 @@ podem ser garantidas nem evitadas pelo Bankai.
 - **Riscos:** enfraquecer por engano a checagem OOB do modo nativo ou mudar as
   decisões estatísticas ao generalizar o contrato.
 
+**Implementado:** resultado de provider agora distingue `Some(true)`,
+`Some(false)` e `None` para evidência OOB; providers sem OOB passam pelo mesmo
+controller Rust. Testes mantêm falha explícita para ausência de OOB nativo,
+comprimento incorreto, sanitização/contagem de NaN e infinito, decisões por ID
+original, poda e continuidade do caminho padrão. Python confirma uma única
+entrada no binding nativo por `fit`, zero bytes copiados no caso NumPy
+zero-copy, cloneabilidade e ausência de dados/estimators fitted retidos.
+
 ### M8.1 — Adapter Python para `feature_importances_`
+
+**Progresso:** API opt-in `estimator=` implementada para estimators clonáveis
+com `feature_importances_`; o controller, shadow generation, poda e decisões
+continuam no Rust. Cada iteração cria o clone sklearn e matriz C-contígua, usa
+o mesmo `y` NumPy codificado durante o fit e retorna somente os scores. Exceções
+do estimator são propagadas com seu tipo original. Testes cobrem tamanho das
+sombras e ordem real+shadow, clone e template sem mutação, chamada por iteração,
+pipeline/CV, scores inválidos e input Arrow.
 
 - **Objetivo:** aceitar um estimador sklearn de árvore como opção e invocá-lo
   através de um provider PyO3; cada chamada `fit(X, y)` retorna ao controller
@@ -528,6 +546,13 @@ podem ser garantidas nem evitadas pelo Bankai.
 
 ### M8.2 — Getter de importância e validação de estimadores
 
+**Progresso:** `importance_getter="auto"` resolve `feature_importances_` ou
+`coef_`; coeficientes binários/multiclasse são reduzidos por soma de valores
+absolutos ao longo das dimensões de classe. Getters por dotted path e callable
+também são aceitos. O retorno precisa ser vetor 1D do tamanho aumentado,
+finito e não negativo. Testes cobrem agregação multiclasses, shape 1D,
+comprimento curto/extra, negativos, NaN e exceção do getter.
+
 - **Objetivo:** ampliar compatibilidade de árvores para modelos lineares e
   wrappers sklearn sem inferir importância silenciosamente.
 - **Rust primeiro:** testar agregação de scores por feature e rejeição de vetor
@@ -545,6 +570,15 @@ podem ser garantidas nem evitadas pelo Bankai.
   automaticamente interpretável.
 
 ### M8.3 — API sklearn, ciclo de vida e modo Arrow/NumPy
+
+**Progresso:** Python `clone`, `get_params`/`set_params`, pickle do selector
+fitted, refit após exceção, Pipeline/CV, arrays C/F/strided e Arrow/Polars foram
+testados. O provider externo vive apenas durante `fit`; diagnóstico conta bytes
+materializados, callbacks e duração. O caminho do adapter não introduziu
+`unsafe`. Miri passou integralmente nos caminhos Arrow FFI `unsafe` locais e
+nos targets do core diretamente alterados; o target de equivalência profunda
+das florestas upstream foi interrompido por custo excessivo, conforme nota de
+limitação vinculada acima.
 
 - **Objetivo:** estabilizar parâmetros, validação, exceções, serialização e
   encaixe em `Pipeline`/CV sem afetar o default nativo.
@@ -565,6 +599,14 @@ podem ser garantidas nem evitadas pelo Bankai.
   diferenças de comportamento em versões suportadas.
 
 ### M8.4 — Benchmarks, documentação e gate de release
+
+**Progresso concluído:** harness e relatório [M8 10k×100](../benchmarks/results/m8_estimators.md)
+registram cinco repetições de quatro métodos, RSS, bytes materializados,
+callbacks, duração e seleções. O par de comparação controlado usa o mesmo
+sklearn RandomForest em Bankai e BorutaPy. As suites completas passaram em
+Python 3.11 e 3.13; Rust tests, Clippy, Miri nos caminhos `unsafe` locais e
+build de sdist/wheel passaram. A limitação do target de equivalência de floresta
+sob Miri está registrada, sem indicar falha de segurança.
 
 - **Objetivo:** quantificar o preço da flexibilidade e provar que o default
   nativo não regrediu.

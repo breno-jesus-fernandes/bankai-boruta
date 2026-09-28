@@ -1,6 +1,7 @@
 use boruta_core::{
-    BorutaConfig, BorutaError, BorutaResult, FeatureDecision, FeatureStorage, ImportanceProvider,
-    ImportanceScale, LogicalMatrix, MatrixView, MaxFeatures, PruningMode, StopReason, run_boruta,
+    BorutaConfig, BorutaError, BorutaResult, FeatureDecision, FeatureStorage, ImportanceOutput,
+    ImportanceProvider, ImportanceScale, LogicalMatrix, MatrixView, MaxFeatures, PruningMode,
+    StopReason, run_boruta,
 };
 use std::sync::Arc;
 
@@ -20,7 +21,7 @@ impl<S: FeatureStorage + Send + Sync> ImportanceProvider<S> for ScriptedImportan
         active_features: &[usize],
         _: &BorutaConfig,
         _: u64,
-    ) -> Result<(Vec<f64>, bool, usize), BorutaError> {
+    ) -> Result<ImportanceOutput, BorutaError> {
         self.calls += 1;
         self.active_history.push(active_features.to_vec());
         assert_eq!(matrix.shape().0, 24);
@@ -36,7 +37,53 @@ impl<S: FeatureStorage + Send + Sync> ImportanceProvider<S> for ScriptedImportan
         if self.wrong_length {
             scores.pop();
         }
-        Ok((scores, !self.missing_oob, 0))
+        Ok(ImportanceOutput {
+            scores,
+            valid_oob: Some(!self.missing_oob),
+            undefined_count: 0,
+        })
+    }
+}
+
+struct NonOobImportance;
+
+impl<S: FeatureStorage + Send + Sync> ImportanceProvider<S> for NonOobImportance {
+    fn compute(
+        &mut self,
+        _: LogicalMatrix<S>,
+        _: Arc<Vec<usize>>,
+        _: usize,
+        active_features: &[usize],
+        _: &BorutaConfig,
+        _: u64,
+    ) -> Result<ImportanceOutput, BorutaError> {
+        Ok(ImportanceOutput {
+            scores: vec![1.0; active_features.len() + active_features.len().max(5)],
+            valid_oob: None,
+            undefined_count: 0,
+        })
+    }
+}
+
+struct NonFiniteImportance;
+
+impl<S: FeatureStorage + Send + Sync> ImportanceProvider<S> for NonFiniteImportance {
+    fn compute(
+        &mut self,
+        _: LogicalMatrix<S>,
+        _: Arc<Vec<usize>>,
+        _: usize,
+        active_features: &[usize],
+        _: &BorutaConfig,
+        _: u64,
+    ) -> Result<ImportanceOutput, BorutaError> {
+        let mut scores = vec![f64::NAN; active_features.len() + active_features.len().max(5)];
+        scores[0] = f64::INFINITY;
+        Ok(ImportanceOutput {
+            scores,
+            valid_oob: None,
+            undefined_count: 0,
+        })
     }
 }
 
@@ -171,6 +218,43 @@ fn no_oob_evidence_and_malformed_scores_fail_clearly() {
         run(&mut malformed),
         Err(BorutaError::ImportanceLength { .. })
     ));
+}
+
+#[test]
+fn provider_without_oob_requirement_runs_through_the_rust_controller() {
+    let mut provider = NonOobImportance;
+    let rows = 24;
+    let values = (0..rows * 3).map(|value| value as f64).collect::<Vec<_>>();
+    let matrix = MatrixView::new(&values, rows, 3, 3, 1).unwrap();
+    let result = run_boruta(
+        matrix,
+        (0..rows).map(|row| row % 2).collect(),
+        2,
+        &config(),
+        &mut provider,
+    )
+    .unwrap();
+    assert_eq!(result.n_iter, 9);
+    assert_eq!(result.decisions, [FeatureDecision::Rejected; 3]);
+}
+
+#[test]
+fn rust_controller_sanitizes_non_finite_scores_and_counts_them() {
+    let mut provider = NonFiniteImportance;
+    let rows = 24;
+    let values = (0..rows * 3).map(|value| value as f64).collect::<Vec<_>>();
+    let matrix = MatrixView::new(&values, rows, 3, 3, 1).unwrap();
+    let result = run_boruta(
+        matrix,
+        (0..rows).map(|row| row % 2).collect(),
+        2,
+        &config(),
+        &mut provider,
+    )
+    .unwrap();
+
+    assert_eq!(result.non_finite_importance_count, result.n_iter * 8);
+    assert_eq!(result.decisions, [FeatureDecision::Rejected; 3]);
 }
 
 #[test]

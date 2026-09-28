@@ -57,10 +57,14 @@ fn native_oob_importance_scores_real_and_virtual_shadow_columns_deterministicall
             )
             .unwrap();
 
-        assert!(first.1, "the forest must produce OOB evidence");
-        assert_eq!(first.0.len(), 7, "two real features and five shadows");
-        assert!(first.0.iter().all(|score| score.is_finite()));
-        assert_eq!(first.0, second.0);
+        assert_eq!(
+            first.valid_oob,
+            Some(true),
+            "the forest must produce OOB evidence"
+        );
+        assert_eq!(first.scores.len(), 7, "two real features and five shadows");
+        assert!(first.scores.iter().all(|score| score.is_finite()));
+        assert_eq!(first.scores, second.scores);
     }
 }
 
@@ -96,7 +100,7 @@ fn parallel_forest_produces_the_same_seeded_importances_as_serial_training() {
             serial.random_state,
         )
         .unwrap()
-        .0;
+        .scores;
     let mut parallel_provider = PermutationImportanceProvider;
     let parallel_scores = parallel_provider
         .compute(
@@ -108,12 +112,12 @@ fn parallel_forest_produces_the_same_seeded_importances_as_serial_training() {
             parallel.random_state,
         )
         .unwrap()
-        .0;
+        .scores;
     let mut repeat_provider = PermutationImportanceProvider;
     let repeated_scores = repeat_provider
         .compute(matrix, labels, 2, &active, &parallel, parallel.random_state)
         .unwrap()
-        .0;
+        .scores;
 
     assert_eq!(parallel_scores, repeated_scores);
     for (parallel, serial) in parallel_scores.iter().zip(serial_scores) {

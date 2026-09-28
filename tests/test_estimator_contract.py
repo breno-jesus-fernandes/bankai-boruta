@@ -24,6 +24,8 @@ def test_default_parameters_are_cloneable_and_match_the_public_contract():
         "n_jobs": 1,
         "random_state": None,
         "store_history": False,
+        "estimator": None,
+        "importance_getter": "auto",
     }
     assert clone(selector).get_params() == selector.get_params()
 
@@ -259,6 +261,302 @@ def test_fit_crosses_into_native_code_once_for_the_entire_iteration_loop(monkeyp
     BankaiBoruta(n_estimators=12, max_iter=3, random_state=1).fit(X, y)
 
     assert calls == 1
+
+
+def test_default_fit_keeps_native_diagnostics_and_does_not_retain_training_arrays():
+    import numpy as np
+
+    rng = np.random.default_rng(902)
+    X = rng.normal(size=(48, 3))
+    y = np.tile([0, 1], 24)
+    selector = BankaiBoruta(n_estimators=12, max_iter=2, random_state=17).fit(X, y)
+
+    assert selector.diagnostics_["copied_bytes"] == 0
+    assert "undefined_importance_count" in selector.diagnostics_
+    assert "non_finite_importance_count" in selector.diagnostics_
+    assert not any(
+        key in vars(selector)
+        for key in ("X", "y", "forest_", "training_data_", "estimator_")
+    )
+
+
+def test_optional_sklearn_estimator_is_cloned_and_fitted_once_per_native_iteration():
+    import numpy as np
+    from sklearn.base import BaseEstimator
+
+    class SpyImportanceEstimator(BaseEstimator):
+        seen = []
+
+        def __init__(self, marker=3):
+            self.marker = marker
+
+        def fit(self, X, y):
+            type(self).seen.append((self, X.shape, y.shape, tuple(X[0, :3])))
+            self.feature_importances_ = np.ones(X.shape[1], dtype=float)
+            return self
+
+    SpyImportanceEstimator.seen = []
+    template = SpyImportanceEstimator()
+    X = np.arange(72, dtype=float).reshape(24, 3)
+    y = np.tile([0, 1], 12)
+    selector = BankaiBoruta(
+        estimator=template, n_estimators=8, max_iter=2, random_state=12
+    ).fit(X, y)
+
+    assert len(SpyImportanceEstimator.seen) == selector.n_iter_ == 2
+    assert all(shape == (24, 8) for _, shape, _, _ in SpyImportanceEstimator.seen)
+    assert all(target_shape == (24,) for _, _, target_shape, _ in SpyImportanceEstimator.seen)
+    assert all(first_row == (0.0, 1.0, 2.0) for _, _, _, first_row in SpyImportanceEstimator.seen)
+    assert len({id(fitted) for fitted, _, _, _ in SpyImportanceEstimator.seen}) == 2
+    assert not hasattr(template, "feature_importances_")
+    assert selector.diagnostics_["external_estimator_calls"] == 2
+    assert selector.diagnostics_["external_estimator_seconds"] >= 0.0
+    assert selector.diagnostics_["fit_time_seconds"] >= selector.diagnostics_["external_estimator_seconds"]
+    assert selector.diagnostics_["copied_bytes"] == 2 * 24 * 8 * 8
+
+
+def test_external_estimator_fit_errors_are_propagated_without_losing_the_exception():
+    import numpy as np
+    from sklearn.base import BaseEstimator
+
+    class BrokenEstimator(BaseEstimator):
+        def fit(self, X, y):
+            raise RuntimeError("sentinel estimator failure")
+
+    with pytest.raises(RuntimeError, match="sentinel estimator failure"):
+        BankaiBoruta(
+            estimator=BrokenEstimator(), n_estimators=8, max_iter=1, random_state=2
+        ).fit(np.ones((24, 2)), np.tile([0, 1], 12))
+
+
+@pytest.mark.parametrize(
+    ("scores", "message"),
+    [
+        (lambda width: [1.0] * (width - 1), "expected"),
+        (lambda width: [1.0] * (width + 1), "expected"),
+        (lambda width: [float("nan")] * width, "finite"),
+        (lambda width: [-1.0] * width, "non-negative"),
+        (lambda width: [[1.0] * width], "shape"),
+    ],
+)
+def test_external_estimator_rejects_malformed_importance_vectors(scores, message):
+    import numpy as np
+    from sklearn.base import BaseEstimator
+
+    class MalformedEstimator(BaseEstimator):
+        def __init__(self, scorer):
+            self.scorer = scorer
+
+        def fit(self, X, y):
+            self.feature_importances_ = self.scorer(X.shape[1])
+            return self
+
+    with pytest.raises(ValueError, match=message):
+        BankaiBoruta(
+            estimator=MalformedEstimator(scores),
+            n_estimators=8,
+            max_iter=1,
+            random_state=3,
+        ).fit(np.ones((24, 2)), np.tile([0, 1], 12))
+
+
+def test_custom_importance_getter_exception_is_preserved():
+    import numpy as np
+    from sklearn.base import BaseEstimator
+
+    class PlainEstimator(BaseEstimator):
+        def fit(self, X, y):
+            return self
+
+    def broken_getter(_):
+        raise LookupError("sentinel importance getter failure")
+
+    with pytest.raises(LookupError, match="sentinel importance getter failure"):
+        BankaiBoruta(
+            estimator=PlainEstimator(),
+            importance_getter=broken_getter,
+            n_estimators=8,
+            max_iter=1,
+            random_state=2,
+        ).fit(np.ones((24, 2)), np.tile([0, 1], 12))
+
+
+def test_external_fit_failure_clears_fitted_state_and_allows_refit():
+    import numpy as np
+    from sklearn.base import BaseEstimator
+
+    class ToggleEstimator(BaseEstimator):
+        fail = True
+
+        def fit(self, X, y):
+            if type(self).fail:
+                raise RuntimeError("first fit fails")
+            self.feature_importances_ = np.ones(X.shape[1])
+            return self
+
+    selector = BankaiBoruta(
+        estimator=ToggleEstimator(), n_estimators=8, max_iter=1, random_state=2
+    )
+    X = np.ones((24, 2))
+    y = np.tile([0, 1], 12)
+    with pytest.raises(RuntimeError, match="first fit fails"):
+        selector.fit(X, y)
+    assert not hasattr(selector, "support_")
+
+    ToggleEstimator.fail = False
+    assert selector.fit(X, y) is selector
+    assert hasattr(selector, "support_")
+
+
+@pytest.mark.parametrize("layout", ["float32_fortran", "float64_c", "strided_copy"])
+def test_external_estimator_accepts_supported_numpy_layouts_and_counts_matrix_bytes(layout):
+    import numpy as np
+    from sklearn.base import BaseEstimator
+
+    class StableEstimator(BaseEstimator):
+        def fit(self, X, y):
+            self.feature_importances_ = np.ones(X.shape[1])
+            return self
+
+    rows = 32
+    base = np.arange(rows * 6, dtype=np.float64).reshape(rows, 6)
+    y = np.tile([0, 1], rows // 2)
+    if layout == "float32_fortran":
+        X = np.asfortranarray(base[:, :3].astype(np.float32))
+        input_mode = "zero_copy"
+    elif layout == "float64_c":
+        X = np.ascontiguousarray(base[:, :3])
+        input_mode = "zero_copy"
+    else:
+        X = base[:, ::2]
+        input_mode = "copy"
+
+    selector = BankaiBoruta(
+        estimator=StableEstimator(),
+        n_estimators=8,
+        max_iter=1,
+        input_mode=input_mode,
+        random_state=5,
+    ).fit(X, y)
+
+    external_matrix_bytes = rows * (X.shape[1] + max(X.shape[1], 5)) * 8
+    ingress_bytes = rows * X.shape[1] * 8 if layout == "strided_copy" else 0
+    assert selector.diagnostics_["copied_bytes"] == external_matrix_bytes + ingress_bytes
+
+
+@pytest.mark.parametrize("getter_kind", ["auto_coef", "dotted", "callable"])
+def test_external_importance_getters_accept_linear_and_wrapped_estimators(getter_kind):
+    import numpy as np
+    from types import SimpleNamespace
+    from sklearn.base import BaseEstimator
+
+    class GetterEstimator(BaseEstimator):
+        def fit(self, X, y):
+            self.coef_ = np.vstack(
+                [np.arange(1, X.shape[1] + 1), -np.arange(2, X.shape[1] + 2)]
+            )
+            self.nested_ = SimpleNamespace(scores_=np.ones(X.shape[1]))
+            return self
+
+    estimator = GetterEstimator()
+    getter = {
+        "auto_coef": "auto",
+        "dotted": "nested_.scores_",
+        "callable": lambda fitted: np.abs(fitted.coef_).sum(axis=0),
+    }[getter_kind]
+    selector = BankaiBoruta(
+        estimator=estimator,
+        importance_getter=getter,
+        n_estimators=8,
+        max_iter=1,
+        random_state=4,
+    ).fit(np.ones((24, 2)), np.tile([0, 1], 12))
+
+    assert selector.n_iter_ == 1
+    assert selector.diagnostics_["external_estimator_calls"] == 1
+
+
+def test_auto_coef_aggregates_multiclass_magnitudes_per_feature():
+    import numpy as np
+    from sklearn.base import BaseEstimator
+
+    class MulticlassLinearEstimator(BaseEstimator):
+        def fit(self, X, y):
+            coef = np.zeros((3, X.shape[1]))
+            coef[0, 0] = 2.0
+            coef[1, 0] = -1.0
+            self.coef_ = coef
+            return self
+
+    y = np.tile([0, 1], 48)
+    X = np.column_stack([y, np.arange(y.size) % 7]).astype(float)
+    selector = BankaiBoruta(
+        estimator=MulticlassLinearEstimator(),
+        n_estimators=8,
+        max_iter=12,
+        alpha=0.05,
+        random_state=14,
+    ).fit(X, y)
+
+    assert selector.support_.tolist() == [True, False]
+
+
+def test_external_estimator_works_inside_sklearn_pipeline_cross_validation():
+    import numpy as np
+    from sklearn.base import BaseEstimator
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import cross_val_score
+    from sklearn.pipeline import make_pipeline
+
+    class StableEstimator(BaseEstimator):
+        def fit(self, X, y):
+            self.feature_importances_ = np.ones(X.shape[1], dtype=float)
+            real_features = X.shape[1] - max(5, X.shape[1] // 2)
+            self.feature_importances_[:real_features] = 2.0
+            return self
+
+    rng = np.random.default_rng(101)
+    X = rng.normal(size=(36, 3))
+    y = np.tile([0, 1], 18)
+    pipeline = make_pipeline(
+        BankaiBoruta(
+            estimator=StableEstimator(),
+            n_estimators=8,
+            max_iter=12,
+            alpha=0.01,
+            random_state=9,
+        ),
+        LogisticRegression(),
+    )
+
+    scores = cross_val_score(pipeline, X, y, cv=3)
+    assert scores.shape == (3,)
+    assert np.isfinite(scores).all()
+
+
+def test_external_estimator_template_is_cloneable_pickleable_and_unfitted_after_fit():
+    import pickle
+
+    import numpy as np
+    from sklearn.tree import DecisionTreeClassifier
+
+    template = DecisionTreeClassifier(max_depth=3, random_state=15)
+    selector = BankaiBoruta(
+        estimator=template,
+        n_estimators=8,
+        max_iter=2,
+        random_state=16,
+    ).fit(np.arange(96, dtype=float).reshape(48, 2), np.tile([0, 1], 24))
+    restored = pickle.loads(pickle.dumps(selector))
+
+    recloned = clone(restored)
+    assert recloned.estimator is not restored.estimator
+    assert recloned.estimator.get_params() == restored.estimator.get_params()
+    assert not hasattr(template, "tree_")
+    assert not hasattr(restored.estimator, "tree_")
+    assert not any(key in vars(restored) for key in ("X", "y", "estimator_", "forest_"))
+    assert restored.n_features_in_ == 2
+    assert restored.decision_.tolist() == selector.decision_.tolist()
 
 
 def test_fitted_selector_is_pickleable_without_retaining_training_data():
