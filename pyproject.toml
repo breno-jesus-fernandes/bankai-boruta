@@ -28,7 +28,6 @@ manifest-path = "crates/python/Cargo.toml"
 python-source = "python"
 module-name = "bankai_boruta._core"
 bindings = "pyo3"
-compatibility = "pypi"
 
 [tool.pytest.ini_options]
 addopts = "-ra"

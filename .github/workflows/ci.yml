@@ -1,0 +1,208 @@
+name: CI and PyPI release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release_gate:
+    name: Check PyPI release state
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      publish: ${{ steps.release.outputs.publish }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check whether this version is already on PyPI
+        id: release
+        run: |
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "https://pypi.org/pypi/bankai-boruta/${version}/json")"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          if [[ "${status}" == "404" ]]; then
+            echo "publish=true" >> "${GITHUB_OUTPUT}"
+            echo "${version} is not yet published; publishing will run after CI and builds pass."
+          elif [[ "${status}" == "200" ]]; then
+            echo "publish=false" >> "${GITHUB_OUTPUT}"
+            echo "${version} is already published; skipping upload."
+          else
+            echo "::error::Could not verify PyPI release state (HTTP ${status})."
+            exit 1
+          fi
+
+  test:
+    name: Test (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            runner: ubuntu-24.04
+          - name: Linux ARM64
+            runner: ubuntu-24.04-arm
+          - name: Windows x86_64
+            runner: windows-2025
+          - name: macOS x86_64
+            runner: macos-15-intel
+          - name: macOS ARM64
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python
+        run: uv python install 3.11
+
+      - name: Install project and test dependencies
+        run: uv sync --locked --extra test --extra arrow-test --no-install-project
+
+      - name: Build and install the native extension
+        run: uv run --no-sync maturin develop --release --locked --skip-install
+
+      - name: Run Python tests
+        run: uv run --no-sync pytest -q
+
+      - name: Add uv Python shared library to runtime path
+        if: matrix.runner == 'ubuntu-24.04-arm'
+        run: echo "LD_LIBRARY_PATH=$(uv run --no-sync python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))'):${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+
+      - name: Run Rust tests
+        run: uv run --no-sync cargo test --workspace --locked
+
+  wheels:
+    name: Build wheel (${{ matrix.name }})
+    needs: test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            manylinux: "2_28"
+          - name: Linux ARM64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            manylinux: "2_28"
+          - name: Windows x86_64
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            manylinux: "off"
+          - name: macOS x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            manylinux: "off"
+          - name: macOS ARM64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            manylinux: "off"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          maturin-version: v1.15.0
+          args: --release --locked --out dist
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 14
+
+  sdist:
+    name: Build source distribution
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Build source distribution
+        run: uv build --sdist --out-dir dist
+
+      - name: Upload source distribution artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  distributions:
+    name: Collect release distributions
+    needs: [wheels, sdist]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download all distributions
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Upload complete release set
+        uses: actions/upload-artifact@v4
+        with:
+          name: bankai-boruta-release
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish release to PyPI
+    needs: [release_gate, distributions]
+    if: needs.release_gate.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download release distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: bankai-boruta-release
+          path: dist
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+
+      - name: Check distributions
+        run: uvx --from twine twine check dist/*
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
+          TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+        run: |
+          if [[ -z "${TWINE_USERNAME}" || -z "${TWINE_PASSWORD}" ]]; then
+            echo "::error::Configure TWINE_USERNAME and TWINE_PASSWORD as GitHub Actions secrets."
+            exit 1
+          fi
+          uvx --from twine twine upload --non-interactive dist/*
