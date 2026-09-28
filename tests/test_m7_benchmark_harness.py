@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from benchmarks.run_m7_comparisons import _summarize
@@ -131,7 +132,7 @@ def test_lightgbm_comparison_has_a_matched_gain_pair_and_shap_variant():
 def test_m7_worker_rejects_inputs_above_ten_thousand_rows():
     completed = subprocess.run(
         [sys.executable, str(RUNNER), "--worker", "--method", "sklearn_rf", "--rows", "10001"],
-        cwd="/tmp",
+        cwd=tempfile.gettempdir(),
         capture_output=True,
         text=True,
         check=False,
