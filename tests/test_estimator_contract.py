@@ -26,6 +26,7 @@ def test_default_parameters_are_cloneable_and_match_the_public_contract():
         "store_history": False,
         "estimator": None,
         "importance_getter": "auto",
+        "forest_backend": "native",
     }
     assert clone(selector).get_params() == selector.get_params()
 
@@ -41,6 +42,7 @@ def test_default_parameters_are_cloneable_and_match_the_public_contract():
         {"importance": "unknown"},
         {"importance_scale": "unknown"},
         {"input_mode": "unknown"},
+        {"forest_backend": "unknown"},
         {"n_jobs": 0},
         {"max_depth": 0},
         {"random_state": -1},
@@ -313,6 +315,157 @@ def test_optional_sklearn_estimator_is_cloned_and_fitted_once_per_native_iterati
     assert selector.diagnostics_["external_estimator_seconds"] >= 0.0
     assert selector.diagnostics_["fit_time_seconds"] >= selector.diagnostics_["external_estimator_seconds"]
     assert selector.diagnostics_["copied_bytes"] == 2 * 24 * 8 * 8
+
+
+@pytest.mark.parametrize("importance", ["gain", "split", "shap"])
+def test_bankai_backend_accepts_random_forest_importance_modes(importance):
+    selector = BankaiBoruta(forest_backend="bankai", importance=importance)
+
+    assert selector.importance == importance
+
+
+@pytest.mark.parametrize("importance", ["gain", "split", "shap"])
+def test_native_backend_rejects_importance_modes_it_does_not_implement(importance):
+    with pytest.raises(ValueError, match="importance must be one of: permutation"):
+        BankaiBoruta(importance=importance)
+
+
+def test_bankai_backend_builds_the_release_estimator_and_rank_preserving_getter(monkeypatch):
+    import sys
+    import types
+    import numpy as np
+    from sklearn.base import BaseEstimator
+
+    class FakeBankaiRandomForestClassifier(BaseEstimator):
+        def __init__(
+            self,
+            n_estimators=100,
+            max_depth=None,
+            max_features="sqrt",
+            n_jobs=None,
+            random_state=None,
+            importance_type="gain",
+        ):
+            self.n_estimators = n_estimators
+            self.max_depth = max_depth
+            self.max_features = max_features
+            self.n_jobs = n_jobs
+            self.random_state = random_state
+            self.importance_type = importance_type
+
+    monkeypatch.setitem(
+        sys.modules,
+        "bankai_random_forest",
+        types.SimpleNamespace(BankaiRandomForestClassifier=FakeBankaiRandomForestClassifier),
+    )
+    selector = BankaiBoruta(
+        forest_backend="bankai",
+        n_estimators=17,
+        max_depth=9,
+        max_features=0.75,
+        n_jobs=3,
+        random_state=41,
+    )
+
+    estimator, getter = selector._resolve_estimator()
+
+    assert isinstance(estimator, FakeBankaiRandomForestClassifier)
+    assert estimator.get_params() == {
+        "importance_type": "permutation",
+        "max_depth": 9,
+        "max_features": 0.75,
+        "n_estimators": 17,
+        "n_jobs": 3,
+        "random_state": 41,
+    }
+    assert callable(getter)
+    np.testing.assert_array_equal(
+        getter(types.SimpleNamespace(feature_importances_=np.array([-2.0, 0.5, 1.0]))),
+        np.array([0.0, 2.5, 3.0]),
+    )
+
+
+def test_bankai_backend_fits_cloned_estimator_with_nonnegative_permutation_scores(monkeypatch):
+    import sys
+    import types
+    import numpy as np
+    from sklearn.base import BaseEstimator
+
+    class FakeBankaiRandomForestClassifier(BaseEstimator):
+        seen = []
+
+        def __init__(
+            self,
+            n_estimators=100,
+            max_depth=None,
+            max_features="sqrt",
+            n_jobs=None,
+            random_state=None,
+            importance_type="gain",
+        ):
+            self.n_estimators = n_estimators
+            self.max_depth = max_depth
+            self.max_features = max_features
+            self.n_jobs = n_jobs
+            self.random_state = random_state
+            self.importance_type = importance_type
+
+        def fit(self, X, y):
+            type(self).seen.append((X.shape, y.shape, self.importance_type))
+            self.feature_importances_ = np.linspace(-1.0, 1.0, X.shape[1])
+            return self
+
+    FakeBankaiRandomForestClassifier.seen = []
+    monkeypatch.setitem(
+        sys.modules,
+        "bankai_random_forest",
+        types.SimpleNamespace(BankaiRandomForestClassifier=FakeBankaiRandomForestClassifier),
+    )
+    X = np.arange(72, dtype=float).reshape(24, 3)
+    y = np.tile([0, 1], 12)
+
+    selector = BankaiBoruta(
+        forest_backend="bankai", n_estimators=8, max_iter=1, random_state=12
+    ).fit(X, y)
+
+    assert selector.n_iter_ == 1
+    assert selector.diagnostics_["external_estimator_calls"] == 1
+    assert FakeBankaiRandomForestClassifier.seen == [((24, 8), (24,), "permutation")]
+
+
+def test_bankai_backend_maps_shap_mode_and_uses_auto_getter(monkeypatch):
+    import sys
+    import types
+    from sklearn.base import BaseEstimator
+
+    class FakeBankaiRandomForestClassifier(BaseEstimator):
+        def __init__(
+            self,
+            n_estimators=100,
+            max_depth=None,
+            max_features="sqrt",
+            n_jobs=None,
+            random_state=None,
+            importance_type="gain",
+        ):
+            self.n_estimators = n_estimators
+            self.max_depth = max_depth
+            self.max_features = max_features
+            self.n_jobs = n_jobs
+            self.random_state = random_state
+            self.importance_type = importance_type
+
+    monkeypatch.setitem(
+        sys.modules,
+        "bankai_random_forest",
+        types.SimpleNamespace(BankaiRandomForestClassifier=FakeBankaiRandomForestClassifier),
+    )
+    selector = BankaiBoruta(forest_backend="bankai", importance="shap")
+
+    estimator, getter = selector._resolve_estimator()
+
+    assert estimator.importance_type == "shap"
+    assert getter == "auto"
 
 
 def test_external_estimator_fit_errors_are_propagated_without_losing_the_exception():

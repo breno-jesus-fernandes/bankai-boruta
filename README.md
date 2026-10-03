@@ -3,10 +3,13 @@
 Native Rust implementation of the Boruta all-relevant feature selection
 algorithm with a scikit-learn compatible Python API.
 
-The canonical classification selector now runs its complete Boruta iteration
-loop inside Rust. `BankaiBoruta.fit(X, y)` accepts C- or F-contiguous NumPy
-`float32`/`float64` arrays without copying `X`; incompatible numeric inputs can
-use `input_mode="copy"`. Rejected features are pruned between iterations,
+The canonical classification selector keeps its Boruta iteration loop and
+statistical decisions in Rust. It can use the built-in Rust forest or
+`BankaiRandomForestClassifier` as the importance provider. With the native
+backend, `BankaiBoruta.fit(X, y)` accepts C- or F-contiguous NumPy `float32`/
+`float64` arrays without copying `X`; incompatible numeric inputs can use
+`input_mode="copy"`. The Bankai backend materializes the active features and
+shadows for each estimator fit. Rejected features are pruned between iterations,
 confirmed features remain as context in canonical mode, and unresolved
 features stay tentative when `max_iter` is reached. `pruning="aggressive"`
 removes confirmed features from subsequent training and is experimental; use it
@@ -35,8 +38,9 @@ cargo test --workspace
 Install `bankai-boruta[polars]` to select directly from Polars DataFrames.
 The strict path supports Float32/Float64 columns, mixed float widths, slices,
 and independently chunked columns. It imports each Series through Arrow C
-Stream, retaining the original value buffers for the duration of `fit`.
-No rechunk, NumPy conversion or augmented matrix is needed. Nulls, NaN/Inf,
+Stream, retaining the original value buffers for the duration of `fit` with the
+native backend. The Bankai backend materializes its augmented estimator input.
+Nulls, NaN/Inf,
 unsupported types and unaligned buffers raise an error. Integers can use the
 explicit `input_mode="copy"` conversion path.
 
@@ -66,12 +70,10 @@ PyArrow is not a runtime dependency.
 
 ## Feature selection with Bankai Random Forest
 
-By default, `BankaiBoruta` uses its built-in Rust forest for Boruta selection.
-The selected columns can then be used to train a `BankaiRandomForestClassifier`
-model. Install both packages in the same environment:
+Install the optional Bankai Random Forest integration with:
 
 ```bash
-python -m pip install bankai-boruta==0.1.0a1 bankai-random-forest==0.1.0a1
+python -m pip install 'bankai-boruta[bankai-rf]'
 ```
 
 This example splits the data before selection, so the test set does not affect
@@ -94,8 +96,10 @@ X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.25, random_state=42, stratify=y
 )
 
-# No estimator argument: Boruta uses its built-in native Rust forest.
-selector = BankaiBoruta(n_estimators=300, max_iter=100, random_state=42)
+# Reuse Bankai Random Forest's native Rust training and importance implementation.
+selector = BankaiBoruta(
+    forest_backend="bankai", n_estimators=300, max_iter=100, random_state=42
+)
 selector.fit(X_train, y_train)
 
 accepted = feature_names[selector.support_]
@@ -110,13 +114,30 @@ model.fit(X_train_selected, y_train)
 print("Test accuracy:", model.score(X_test_selected, y_test))
 ```
 
-The complete scripts, including a version that supplies
-`BankaiRandomForestClassifier` as Boruta's optional estimator, are in
-[`examples/`](examples/).
+The native-backend example is also available in [`examples/`](examples/).
 
-## Optional Python estimator
+## Forest backends and custom estimators
 
-To use a different scikit-learn-compatible classifier, pass a cloneable
+`forest_backend="native"` is the default and uses Boruta's built-in Rust forest.
+Set `forest_backend="bankai"` to use `BankaiRandomForestClassifier` from the
+optional `bankai-rf` extra. The backend maps the Boruta tree count, depth,
+feature sampling, worker count and seed to the Random Forest estimator. Its
+permutation importances are shifted by one shared minimum when needed; this
+preserves real-versus-shadow comparisons while satisfying the non-negative
+score contract. Set `importance="gain"`, `"split"`, or `"shap"` to use the
+corresponding importance mode from the Random Forest package; the built-in
+native backend continues to use permutation importance.
+
+The Bankai provider fits a cloned Python estimator once per Boruta iteration.
+Rust still owns shadow generation, pruning and statistical decisions, but each
+iteration materializes the active features and shadows into a matrix. This
+path trades memory and callback overhead for the latest Random Forest engine.
+`importance_scale` applies to the built-in native provider; external providers
+use the estimator's score scale.
+
+To pass a configured Random Forest (including options such as `max_bins` or
+`importance_type="shap"`), or use another scikit-learn-compatible classifier,
+pass a cloneable
 estimator that exposes `feature_importances_`. Bankai keeps the Boruta
 controller, shadow generation, pruning and statistical decisions in Rust, but
 fits the Python estimator once per iteration on a materialized matrix of active
@@ -127,6 +148,22 @@ count and time. The estimator template is not fitted or otherwise mutated.
 `importance_getter="auto"` reads `feature_importances_`, falling back to
 `coef_`; a dotted attribute path or callable can provide custom scores. Getters
 must return one finite, non-negative score per augmented input column.
+
+For example, custom Random Forest settings expose the new histogram and SHAP
+options directly:
+
+```python
+from bankai_boruta import BankaiBoruta
+from bankai_random_forest import BankaiRandomForestClassifier
+
+selector = BankaiBoruta(
+    estimator=BankaiRandomForestClassifier(
+        n_estimators=500, max_bins=63, importance_type="shap", random_state=42
+    ),
+    importance_getter="auto",
+    random_state=42,
+)
+```
 
 The Arrow development suite must run with its optional dependencies installed:
 

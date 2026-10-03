@@ -6,7 +6,6 @@ from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
 
 from bankai_boruta import BankaiBoruta
-from bankai_random_forest import BankaiRandomForestClassifier
 
 
 def main() -> None:
@@ -32,12 +31,9 @@ def main() -> None:
     )
 
     selector = BankaiBoruta(
-        estimator=BankaiRandomForestClassifier(
-            n_estimators=200,
-            max_features="sqrt",
-            random_state=42,
-        ),
-        importance_getter="auto",
+        forest_backend="bankai",
+        n_estimators=200,
+        max_features="sqrt",
         max_iter=100,
         alpha=0.01,
         random_state=42,
@@ -57,6 +53,8 @@ def main() -> None:
     X_test_selected = selector.transform(X_test)
     if X_train_selected.shape[1] == 0:
         raise RuntimeError("Boruta did not confirm any features; inspect tentative features")
+
+    from bankai_random_forest import BankaiRandomForestClassifier
 
     model = BankaiRandomForestClassifier(n_estimators=300, random_state=42)
     model.fit(X_train_selected, y_train)

@@ -12,7 +12,7 @@ from sklearn.utils.validation import check_is_fitted
 
 
 class BankaiBoruta(SelectorMixin, BaseEstimator):
-    """Select relevant numeric features with the native Bankai Boruta engine."""
+    """Select relevant numeric features with the Bankai Boruta engine."""
 
     def __init__(
         self,
@@ -30,6 +30,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         store_history: bool = False,
         estimator: Any = None,
         importance_getter: Any = "auto",
+        forest_backend: str = "native",
     ) -> None:
         self.n_estimators = n_estimators
         self.max_iter = max_iter
@@ -45,6 +46,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         self.store_history = store_history
         self.estimator = estimator
         self.importance_getter = importance_getter
+        self.forest_backend = forest_backend
         self._validate_parameters()
 
     def fit(self, X: Any, y: Any) -> BankaiBoruta:
@@ -90,6 +92,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             materialized_bytes = int(native_X.nbytes)
             if native_X.dtype in (np.dtype("float32"), np.dtype("float64")):
                 native_mode = "zero_copy"
+        estimator, importance_getter = self._resolve_estimator()
         result = _core.fit_boruta(
             native_X,
             encoded_y,
@@ -105,8 +108,8 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             self.importance_scale,
             self.store_history,
             native_mode,
-            self.estimator,
-            self.importance_getter,
+            estimator,
+            importance_getter,
         )
 
         decisions = np.asarray(result["decisions"], dtype=np.uint8)
@@ -124,7 +127,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         self.stop_reason_ = result["stop_reason"]
         self.diagnostics_ = result["diagnostics"]
         self.diagnostics_["copied_bytes"] += materialized_bytes
-        if self.estimator is not None:
+        if estimator is not None:
             self.diagnostics_["fit_time_seconds"] = time.perf_counter() - fit_started
         if self.store_history:
             self.history_ = result["history"]
@@ -143,8 +146,12 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             raise ValueError("alpha must be a number strictly between 0 and 1")
         if self.pruning not in {"canonical", "aggressive"}:
             raise ValueError("pruning must be 'canonical' or 'aggressive'")
-        if self.importance != "permutation":
-            raise ValueError("importance must be 'permutation' in this release")
+        supported_importances = {"permutation", "gain", "split", "shap"}
+        if self.estimator is None and self.forest_backend == "native":
+            supported_importances = {"permutation"}
+        if self.importance not in supported_importances:
+            choices = ", ".join(sorted(supported_importances))
+            raise ValueError(f"importance must be one of: {choices}")
         if self.importance_scale not in {"zscore", "raw"}:
             raise ValueError("importance_scale must be 'zscore' or 'raw'")
         if self.input_mode not in {"zero_copy", "copy"}:
@@ -169,6 +176,8 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             raise ValueError("random_state must be non-negative")
         if not isinstance(self.store_history, bool):
             raise ValueError("store_history must be a bool")
+        if self.forest_backend not in {"native", "bankai"}:
+            raise ValueError("forest_backend must be 'native' or 'bankai'")
         if not (
             callable(self.importance_getter)
             or isinstance(self.importance_getter, str)
@@ -179,6 +188,46 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                 "importance_getter must be 'auto', a dotted attribute path, or callable"
             )
 
+    def _resolve_estimator(self) -> tuple[Any, Any]:
+        """Resolve the configured estimator without changing the cloneable params."""
+        if self.estimator is not None:
+            return self.estimator, self.importance_getter
+        if self.forest_backend == "native":
+            return None, self.importance_getter
+
+        try:
+            from bankai_random_forest import BankaiRandomForestClassifier
+        except ImportError as error:
+            raise ImportError(
+                "forest_backend='bankai' requires the optional dependency; "
+                "install bankai-boruta[bankai-rf]"
+            ) from error
+
+        estimator = BankaiRandomForestClassifier(
+            n_estimators=self.n_estimators,
+            max_depth=self.max_depth,
+            max_features=self.max_features,
+            n_jobs=self.n_jobs,
+            random_state=self.random_state,
+            importance_type=self.importance,
+        )
+        getter = self.importance_getter
+        if getter == "auto" and self.importance == "permutation":
+            # XRF permutation importance can be negative. Boruta's external
+            # provider accepts non-negative values; subtracting one shared
+            # minimum preserves every real-versus-shadow comparison.
+            getter = _nonnegative_rank_preserving_importance
+        return estimator, getter
+
     def _get_support_mask(self):
         check_is_fitted(self, "support_")
         return self.support_
+
+
+def _nonnegative_rank_preserving_importance(estimator: Any):
+    import numpy as np
+
+    scores = np.asarray(estimator.feature_importances_, dtype=np.float64)
+    if scores.ndim != 1 or scores.size == 0:
+        return scores
+    return scores - scores.min()
