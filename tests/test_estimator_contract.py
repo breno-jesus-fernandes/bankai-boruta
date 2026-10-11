@@ -12,17 +12,18 @@ def test_default_parameters_are_cloneable_and_match_the_public_contract():
     selector = BankaiBoruta()
 
     assert selector.get_params() == {
-        "n_estimators": 500,
+        "n_estimators": 40,
         "max_iter": 100,
-        "alpha": 0.01,
+        "alpha": 0.05,
         "pruning": "canonical",
-        "importance": "permutation",
+        "importance": None,
         "importance_scale": "zscore",
         "input_mode": "zero_copy",
         "max_features": "sqrt",
-        "max_depth": 512,
-        "n_jobs": 1,
-        "random_state": None,
+        "max_depth": 6,
+        "n_jobs": -1,
+        "random_state": 2077,
+        "max_bins": 63,
         "store_history": False,
         "estimator": None,
         "importance_getter": "auto",
@@ -345,6 +346,7 @@ def test_bankai_backend_builds_the_release_estimator_and_rank_preserving_getter(
             n_jobs=None,
             random_state=None,
             importance_type="gain",
+            max_bins=None,
         ):
             self.n_estimators = n_estimators
             self.max_depth = max_depth
@@ -352,6 +354,7 @@ def test_bankai_backend_builds_the_release_estimator_and_rank_preserving_getter(
             self.n_jobs = n_jobs
             self.random_state = random_state
             self.importance_type = importance_type
+            self.max_bins = max_bins
 
     monkeypatch.setitem(
         sys.modules,
@@ -365,6 +368,7 @@ def test_bankai_backend_builds_the_release_estimator_and_rank_preserving_getter(
         max_features=0.75,
         n_jobs=3,
         random_state=41,
+        importance="permutation",
     )
 
     estimator, getter = selector._resolve_estimator()
@@ -372,6 +376,7 @@ def test_bankai_backend_builds_the_release_estimator_and_rank_preserving_getter(
     assert isinstance(estimator, FakeBankaiRandomForestClassifier)
     assert estimator.get_params() == {
         "importance_type": "permutation",
+        "max_bins": 63,
         "max_depth": 9,
         "max_features": 0.75,
         "n_estimators": 17,
@@ -402,6 +407,7 @@ def test_bankai_backend_fits_cloned_estimator_with_nonnegative_permutation_score
             n_jobs=None,
             random_state=None,
             importance_type="gain",
+            max_bins=None,
         ):
             self.n_estimators = n_estimators
             self.max_depth = max_depth
@@ -409,6 +415,7 @@ def test_bankai_backend_fits_cloned_estimator_with_nonnegative_permutation_score
             self.n_jobs = n_jobs
             self.random_state = random_state
             self.importance_type = importance_type
+            self.max_bins = max_bins
 
         def fit(self, X, y):
             type(self).seen.append((X.shape, y.shape, self.importance_type))
@@ -447,6 +454,7 @@ def test_bankai_backend_maps_shap_mode_and_uses_auto_getter(monkeypatch):
             n_jobs=None,
             random_state=None,
             importance_type="gain",
+            max_bins=None,
         ):
             self.n_estimators = n_estimators
             self.max_depth = max_depth
@@ -454,6 +462,7 @@ def test_bankai_backend_maps_shap_mode_and_uses_auto_getter(monkeypatch):
             self.n_jobs = n_jobs
             self.random_state = random_state
             self.importance_type = importance_type
+            self.max_bins = max_bins
 
     monkeypatch.setitem(
         sys.modules,
