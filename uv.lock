@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -50,7 +50,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bankai-random-forest", marker = "extra == 'bankai-rf'", specifier = "==0.1.0a10" },
+    { name = "bankai-random-forest", marker = "extra == 'bankai-rf'", specifier = "==0.1.0a14" },
     { name = "numpy", specifier = ">=2.1" },
     { name = "polars", marker = "extra == 'arrow-test'", specifier = ">=1.32" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.32" },
@@ -72,7 +72,7 @@ dev = [
 
 [[package]]
 name = "bankai-random-forest"
-version = "0.1.0a10"
+version = "0.1.0a14"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -80,13 +80,13 @@ dependencies = [
     { name = "pandas" },
     { name = "scikit-learn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/78/73/34d4b6c55ce3713dcbc7ac73d3ac27acec680ace020c1323e6f03f21b961/bankai_random_forest-0.1.0a10.tar.gz", hash = "sha256:4e6d0e5e2697053c24ef3ee4248b7e3ac9bf89dc277c36c6cf55d003e728fbf4", size = 379450, upload-time = "2026-10-02T23:27:24.356Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/37/f5/09d76ca1a873ff373a06bf2d1b567d0f546a9764f645e1543087e9fb8d05/bankai_random_forest-0.1.0a14.tar.gz", hash = "sha256:d722ba605ee911974057543d0602ed25497ee1d05e8208d971bd4c4b87642ff4", size = 1268140, upload-time = "2026-10-12T22:46:05.548Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5e/d9/d5e357a60b0e3469d94ec0e10c98cf99045be8c45805c0db4a4c1a29db2b/bankai_random_forest-0.1.0a10-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2af32c5b44be16b322b24cdd9d0cafababc287f2cbdbb268519a184881a2973c", size = 369625, upload-time = "2026-10-02T23:27:16.693Z" },
-    { url = "https://files.pythonhosted.org/packages/43/f8/6773e45ae4c86a7659d95d31b41189701f62fef10dd8b4d656923cf932da/bankai_random_forest-0.1.0a10-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:edf65600d580a876273937d7d4cd137977d80fa12e94a9e575f1d62797ca7a91", size = 341239, upload-time = "2026-10-02T23:27:18.541Z" },
-    { url = "https://files.pythonhosted.org/packages/4c/69/205d6f35f2d697659902e2501e5c534445a3cd562f4dff93099c9d4f252d/bankai_random_forest-0.1.0a10-cp311-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:8fd5befd3a5520eacd7907241ebf39ca30b1e5c1aefd8c9242880cbfab1b4d6c", size = 362297, upload-time = "2026-10-02T23:27:19.999Z" },
-    { url = "https://files.pythonhosted.org/packages/5c/7f/53ecfdb83b94555e5bf6163637c96c00ec8bcc74583f0d617464cefccef6/bankai_random_forest-0.1.0a10-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:dea83e816fb7e362ba8fd9da454f56b991bdd2da594e94903be94741bfd3bc4b", size = 388160, upload-time = "2026-10-02T23:27:21.344Z" },
-    { url = "https://files.pythonhosted.org/packages/16/94/df76bfb34be26070db75d0f8e9e0d4b6f31379b47e22efa84c32424a3fde/bankai_random_forest-0.1.0a10-cp311-abi3-win_amd64.whl", hash = "sha256:edab2a8dbcc99117eac4b92613c2488ee2efd6b14269598c8bf1082e6a63f3b7", size = 293524, upload-time = "2026-10-02T23:27:23.005Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/50/e25586ce1a0a15ea705a3e3f4db2ccdfdd05efb2386c1545319d6611f787/bankai_random_forest-0.1.0a14-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:d38a169fd2fa40748c144915f15fc8abedede359d1b9b13d287f06f023ed0a60", size = 393452, upload-time = "2026-10-12T22:45:57.648Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/fd/237c7f51f08d0270f7677adf807b7466f22de8487c2e42b6e81a7648c1b1/bankai_random_forest-0.1.0a14-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:1d549ed7973c5f4d7b23db5897a17aa41a088908b6d0faf5e4f54dd20b8d2db2", size = 359970, upload-time = "2026-10-12T22:45:59.396Z" },
+    { url = "https://files.pythonhosted.org/packages/28/09/ab1660fe810eccfff8b81cdcbff9b5d86b7f34eaef7a2cfebd8d49e16736/bankai_random_forest-0.1.0a14-cp311-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:842805566eda19604a63a97963ed25a55583d84a2aeaef8fb4a60558b6505328", size = 381691, upload-time = "2026-10-12T22:46:01.03Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/2e/05d263df51979d7c29b408cee5f4735895089f38fbe90d755eb1b58f39ef/bankai_random_forest-0.1.0a14-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:673d397d4375da7f0dfc3700b6cd0f67185598233c3eb9ab2596dbb54a84434a", size = 411793, upload-time = "2026-10-12T22:46:02.501Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/3a/a1ad98d1480e8b5f2a10766f31bbc957414e19387f08bb012abadf63cdff/bankai_random_forest-0.1.0a14-cp311-abi3-win_amd64.whl", hash = "sha256:347f60bd67efb251d6e2e8554cdd41a8386cef8a90ef3e464a75cd89a92a4d0a", size = 315356, upload-time = "2026-10-12T22:46:04.123Z" },
 ]
 
 [[package]]
