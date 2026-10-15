@@ -432,7 +432,7 @@ def test_bankai_backend_fits_cloned_estimator_with_nonnegative_permutation_score
     y = np.tile([0, 1], 12)
 
     selector = BankaiBoruta(
-        forest_backend="bankai", n_estimators=8, max_iter=1, random_state=12
+        forest_backend="bankai", importance="permutation", n_estimators=8, max_iter=1, random_state=12
     ).fit(X, y)
 
     assert selector.n_iter_ == 1

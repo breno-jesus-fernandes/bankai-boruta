@@ -1,10 +1,10 @@
-name: CI and PyPI release
+name: CI and release
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
 
 permissions:
@@ -71,17 +71,17 @@ jobs:
         run: uv python install 3.11
 
       - name: Install project and test dependencies
-        run: uv sync --locked --extra test --extra arrow-test
+        run: uv sync --python 3.11 --locked --no-install-project --extra test --extra arrow-test
+
+      - name: Add uv Python shared library to runtime path
+        if: startsWith(matrix.runner, 'ubuntu-')
+        run: echo "LD_LIBRARY_PATH=$(uv run --no-sync python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))'):${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
       - name: Build and install the native extension
-        run: uv run --no-sync maturin develop --release --locked --skip-install
+        run: uv run --no-sync maturin develop --release --locked
 
       - name: Run Python tests
         run: uv run --no-sync pytest -q
-
-      - name: Add uv Python shared library to runtime path
-        if: matrix.runner == 'ubuntu-24.04-arm'
-        run: echo "LD_LIBRARY_PATH=$(uv run --no-sync python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))'):${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
       - name: Run Rust tests
         run: uv run --no-sync cargo test --workspace --locked
@@ -182,6 +182,9 @@ jobs:
     name: Publish release to PyPI
     needs: [release_gate, distributions]
     if: needs.release_gate.outputs.publish == 'true'
+    concurrency:
+      group: pypi-${{ needs.release_gate.outputs.version }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     steps:
       - name: Download release distributions
