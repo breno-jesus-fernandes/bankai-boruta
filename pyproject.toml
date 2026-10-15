@@ -17,7 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 polars = ["polars>=1.32"]
-bankai-rf = ["bankai-random-forest==0.1.0a10"]
+bankai-rf = ["bankai-random-forest==0.1.0a14"]
 arrow-test = ["polars>=1.32", "pyarrow>=18", "psutil>=6"]
 test = ["pytest>=8.3", "pytest-benchmark>=5.1"]
 
