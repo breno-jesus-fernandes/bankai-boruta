@@ -1,30 +1,7 @@
-# Usage and API notes
+# Input and estimator notes
 
-## Selector parameters
-
-`BankaiBoruta()` defaults to 40 trees, depth 6, all available workers, seed
-2077, and 63 bins for the Bankai backend. When `importance` is omitted, the
-native backend uses permutation importance and the Bankai backend uses gain
-importance.
-
-| Parameter | Default | Description |
-| --- | --- | --- |
-| `n_estimators` | `40` | Number of trees per Boruta iteration. |
-| `max_iter` | `100` | Maximum number of Boruta iterations. |
-| `alpha` | `0.05` | Significance level for feature decisions. |
-| `pruning` | `"canonical"` | Boruta pruning mode. Canonical mode keeps confirmed features as context; `"aggressive"` removes them and is experimental. |
-| `importance` | `None` | Selects the backend default: permutation for native, gain for Bankai. Bankai also supports split and SHAP. |
-| `importance_scale` | `"zscore"` | Scale applied to built-in native importance scores. |
-| `max_features` | `"sqrt"` | Candidate features considered at each split: `"sqrt"`, `"log2"`, a count, a fraction, or `None`. |
-| `max_depth` | `6` | Maximum forest tree depth. `None` uses the engine's depth cap. |
-| `n_jobs` | `-1` | Worker count. `-1` uses all available CPUs. |
-| `random_state` | `2077` | Seed for repeatable fits. |
-| `max_bins` | `63` | Histogram bins for the Bankai backend; `None` disables histogram splitting. |
-| `input_mode` | `"zero_copy"` | Input handling mode. `"copy"` enables conversion for otherwise unsupported numeric layouts. |
-| `store_history` | `False` | Whether to retain per-iteration decision history. |
-
-The selector exposes scikit-learn style `support_`, `support_weak_`,
-`decision_`, `transform`, and `get_support` attributes and methods.
+See the [selector reference](../README.md#selector-reference) for all parameters,
+defaults, methods, and fitted results.
 
 ## NumPy, Polars, and Arrow input
 
@@ -71,3 +48,32 @@ active features and shadows. `importance_getter="auto"` reads
 provide custom scores. A custom getter must return one finite, non-negative
 score per augmented input column.
 
+## Pipeline and cross-validation
+
+Selection belongs inside the pipeline so each fold learns its support mask
+using only training data:
+
+```python
+from sklearn.datasets import make_classification
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score
+from sklearn.pipeline import make_pipeline
+from bankai_boruta import BankaiBoruta
+
+X, y = make_classification(n_samples=800, n_features=20, random_state=2077)
+pipeline = make_pipeline(
+    BankaiBoruta(random_state=2077),
+    LogisticRegression(max_iter=1000),
+)
+scores = cross_val_score(pipeline, X, y, cv=3)
+print(scores)
+```
+
+Custom `coef_` scores are reduced by summing absolute values over class axes.
+The built-in Bankai permutation getter shifts all scores by their shared minimum
+to preserve ordering while satisfying the non-negative score contract. Custom
+getters must implement any necessary transformation themselves.
+
+For the Arrow zero-copy resolution and ownership constraints, see the
+[M6 notes](limitations/M6-resolution-plan.md) and
+[FFI safety notes](../crates/arrow-ffi/SAFETY.md).

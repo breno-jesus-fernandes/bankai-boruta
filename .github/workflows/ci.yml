@@ -1,8 +1,10 @@
-name: CI and release
+name: CI and release artifacts
 
 on:
   push:
     branches: [main, develop]
+    paths-ignore:
+      - '**/*.md'
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
@@ -12,27 +14,27 @@ permissions:
 
 jobs:
   release_gate:
-    name: Check PyPI release state
+    name: Check current package release on main
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     outputs:
-      publish: ${{ steps.release.outputs.publish }}
-      version: ${{ steps.release.outputs.version }}
+      changed: ${{ steps.version.outputs.changed }}
+      version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check whether this version is already on PyPI
-        id: release
+        id: version
         run: |
-          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
-          status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "https://pypi.org/pypi/bankai-boruta/${version}/json")"
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          current_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          echo "version=${current_version}" >> "${GITHUB_OUTPUT}"
+          status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "https://pypi.org/pypi/bankai-boruta/${current_version}/json")"
           if [[ "${status}" == "404" ]]; then
-            echo "publish=true" >> "${GITHUB_OUTPUT}"
-            echo "${version} is not yet published; publishing will run after CI and builds pass."
+            echo "changed=true" >> "${GITHUB_OUTPUT}"
+            echo "changed=true; ${current_version} is not yet published on PyPI."
           elif [[ "${status}" == "200" ]]; then
-            echo "publish=false" >> "${GITHUB_OUTPUT}"
-            echo "${version} is already published; skipping upload."
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            echo "changed=false; ${current_version} is already published on PyPI."
           else
             echo "::error::Could not verify PyPI release state (HTTP ${status})."
             exit 1
@@ -45,42 +47,77 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Linux x86_64
+          - name: Linux x86_64 / Python 3.11
             runner: ubuntu-24.04
-          - name: Linux ARM64
+            python: "3.11"
+            coverage: true
+          - name: Linux x86_64 / Python 3.12
+            runner: ubuntu-24.04
+            python: "3.12"
+          - name: Linux x86_64 / Python 3.13
+            runner: ubuntu-24.04
+            python: "3.13"
+          - name: Linux x86_64 / Python 3.14
+            runner: ubuntu-24.04
+            python: "3.14"
+          - name: Linux ARM64 / Python 3.11
             runner: ubuntu-24.04-arm
-          - name: Windows x86_64
+            python: "3.11"
+          - name: Windows x86_64 / Python 3.11
             runner: windows-2025
-          - name: macOS x86_64
+            python: "3.11"
+          - name: macOS x86_64 / Python 3.11
             runner: macos-15-intel
-          - name: macOS ARM64
+            python: "3.11"
+          - name: macOS ARM64 / Python 3.11
             runner: macos-15
+            python: "3.11"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.2.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
+          version: 0.12.21
           enable-cache: true
           cache-dependency-glob: uv.lock
 
       - name: Install Python
-        run: uv python install 3.11
+        run: uv python install ${{ matrix.python }}
 
       - name: Install project and test dependencies
-        run: uv sync --python 3.11 --locked --no-install-project --extra test --extra arrow-test
+        run: uv sync --python ${{ matrix.python }} --locked --no-install-project --extra test --extra arrow-test
 
       - name: Add uv Python shared library to runtime path
-        if: startsWith(matrix.runner, 'ubuntu-')
+        if: matrix.runner == 'ubuntu-24.04' || matrix.runner == 'ubuntu-24.04-arm'
         run: echo "LD_LIBRARY_PATH=$(uv run --no-sync python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))'):${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
       - name: Build and install the native extension
         run: uv run --no-sync maturin develop --release --locked
 
       - name: Run Python tests
+        if: matrix.coverage == true
+        run: uv run --no-sync pytest --cov=bankai_boruta --cov-report=xml:coverage.xml -q
+
+      - name: Upload Python coverage to Codecov
+        if: matrix.coverage == true
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: coverage.xml
+          flags: python
+          fail_ci_if_error: false
+          token: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.CODECOV_TOKEN || '' }}
+
+      - name: Run Python tests on other platforms
+        if: matrix.coverage != true
         run: uv run --no-sync pytest -q
 
       - name: Run Rust tests
@@ -115,10 +152,10 @@ jobs:
             target: aarch64-apple-darwin
             manylinux: "off"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build wheel
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           command: build
           target: ${{ matrix.target }}
@@ -126,8 +163,39 @@ jobs:
           maturin-version: v1.15.0
           args: --release --locked --out dist
 
+      - name: Verify wheel ABI and platform tag
+        shell: bash
+        env:
+          WHEEL_TARGET: ${{ matrix.target }}
+        run: |
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          if [[ "${#wheels[@]}" -ne 1 ]]; then
+            echo "Expected exactly one platform wheel, found ${#wheels[@]}" >&2
+            exit 1
+          fi
+          wheel="${wheels[0]}"
+          if [[ "${wheel}" != *-cp311-abi3-* ]]; then
+            echo "Expected a CPython 3.11 stable-ABI wheel: ${wheel}" >&2
+            exit 1
+          fi
+          case "${WHEEL_TARGET}" in
+            x86_64-unknown-linux-gnu)
+              [[ "${wheel}" == *manylinux*x86_64.whl ]] ;;
+            aarch64-unknown-linux-gnu)
+              [[ "${wheel}" == *manylinux*aarch64.whl ]] ;;
+            x86_64-pc-windows-msvc)
+              [[ "${wheel}" == *win_amd64.whl ]] ;;
+            x86_64-apple-darwin)
+              [[ "${wheel}" == *macosx*x86_64.whl ]] ;;
+            aarch64-apple-darwin)
+              [[ "${wheel}" == *macosx*arm64.whl ]] ;;
+            *) echo "Unknown wheel target: ${WHEEL_TARGET}" >&2; exit 1 ;;
+          esac
+          echo "Validated ${wheel}"
+
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-${{ matrix.target }}
           path: dist/*.whl
@@ -139,11 +207,12 @@ jobs:
     needs: test
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.2.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
+          version: 0.12.21
           enable-cache: true
           cache-dependency-glob: uv.lock
 
@@ -151,7 +220,7 @@ jobs:
         run: uv build --sdist --out-dir dist
 
       - name: Upload source distribution artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-sdist
           path: dist/*.tar.gz
@@ -163,49 +232,119 @@ jobs:
     needs: [wheels, sdist]
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Download all distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: release-*
           path: dist
           merge-multiple: true
 
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        with:
+          toolchain: stable
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: 0.12.21
+
+      - name: Install SBOM generators
+        run: cargo install cargo-cyclonedx --locked --version 0.5.9
+
+      - name: Generate Rust and Python CycloneDX SBOMs from lockfiles
+        run: |
+          mkdir -p dist/packages
+          mv dist/*.whl dist/*.tar.gz dist/packages/
+          cargo metadata --locked --format-version 1 --no-deps >/dev/null
+          cargo cyclonedx --manifest-path Cargo.toml --format json --override-filename rust-sbom
+          python - <<'PYTHON'
+          from pathlib import Path
+          files = sorted(Path("crates").rglob("rust-sbom.json"))
+          if len(files) != 3:
+              raise SystemExit(f"Expected three workspace SBOMs, found {len(files)}")
+          for path in files:
+              path.rename(Path("dist") / f"bankai-boruta-{path.parent.name}-rust.cdx.json")
+          PYTHON
+          uv export --locked --no-dev --all-extras --no-emit-project --format requirements-txt --output-file dist/requirements-sbom.txt
+          uvx --from cyclonedx-bom==7.5.0 cyclonedx-py requirements dist/requirements-sbom.txt --of JSON -o dist/bankai-boruta-python.cdx.json
+          rm dist/requirements-sbom.txt
+
       - name: Upload complete release set
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bankai-boruta-release
           path: dist/*
           if-no-files-found: error
           retention-days: 14
 
+  attest:
+    name: Attest release artifacts
+    needs: distributions
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bankai-boruta-release
+          path: dist
+      - name: Generate artifact provenance attestations
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'dist/**'
+
   publish:
     name: Publish release to PyPI
-    needs: [release_gate, distributions]
-    if: needs.release_gate.outputs.publish == 'true'
+    needs: [release_gate, distributions, attest]
+    if: needs.release_gate.outputs.changed == 'true'
     concurrency:
-      group: pypi-${{ needs.release_gate.outputs.version }}
+      group: publish-${{ needs.release_gate.outputs.version }}
       cancel-in-progress: false
     runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    environment:
+      name: pypi
+      url: https://pypi.org/project/bankai-boruta/${{ needs.release_gate.outputs.version }}/
     steps:
       - name: Download release distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bankai-boruta-release
           path: dist
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.2.0
+      - name: Publish to PyPI with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist/packages/
 
-      - name: Check distributions
-        run: uvx --from twine twine check dist/*
+  github_release:
+    name: Create GitHub release
+    needs: [release_gate, publish]
+    if: needs.release_gate.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download release distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bankai-boruta-release
+          path: dist
 
-      - name: Publish to PyPI
+      - name: Create GitHub release with distributions
         env:
-          TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
-          TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release_gate.outputs.version }}
         run: |
-          if [[ -z "${TWINE_USERNAME}" || -z "${TWINE_PASSWORD}" ]]; then
-            echo "::error::Configure TWINE_USERNAME and TWINE_PASSWORD as GitHub Actions secrets."
-            exit 1
+          release_args=(--repo "$GITHUB_REPOSITORY" --title "v${VERSION}" --generate-notes --target "$GITHUB_SHA")
+          if [[ "${VERSION}" =~ (a|b|rc)[0-9]+$ ]]; then
+            release_args+=(--prerelease)
           fi
-          uvx --from twine twine upload --non-interactive dist/*
+          gh release create "v${VERSION}" dist/packages/* dist/*.cdx.json "${release_args[@]}"
