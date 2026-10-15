@@ -8,5 +8,5 @@ repository = "https://github.com/breno-jesus-fernandes/bankai-boruta"
 homepage = "https://github.com/breno-jesus-fernandes/bankai-boruta"
 
 [dependencies]
-bankai-forest-core = { git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "2f0f908" }
+bankai-forest-core = { git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "2f0f908", version = "=0.1.0" }
 thiserror.workspace = true

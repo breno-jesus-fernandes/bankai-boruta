@@ -16,17 +16,18 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
 
     def __init__(
         self,
-        n_estimators: int = 500,
+        n_estimators: int = 40,
         max_iter: int = 100,
-        alpha: float = 0.01,
+        alpha: float = 0.05,
         pruning: str = "canonical",
-        importance: str = "permutation",
+        importance: str | None = None,
         importance_scale: str = "zscore",
         input_mode: str = "zero_copy",
         max_features: str | int | float | None = "sqrt",
-        max_depth: int | None = 512,
-        n_jobs: int = 1,
-        random_state: int | None = None,
+        max_depth: int | None = 6,
+        n_jobs: int = -1,
+        random_state: int | None = 2077,
+        max_bins: int | None = 63,
         store_history: bool = False,
         estimator: Any = None,
         importance_getter: Any = "auto",
@@ -43,6 +44,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         self.max_depth = max_depth
         self.n_jobs = n_jobs
         self.random_state = random_state
+        self.max_bins = max_bins
         self.store_history = store_history
         self.estimator = estimator
         self.importance_getter = importance_getter
@@ -51,6 +53,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
 
     def fit(self, X: Any, y: Any) -> BankaiBoruta:
         import numpy as np
+        import os
         import time
         from sklearn.utils.multiclass import check_classification_targets
         from sklearn.utils.validation import check_array
@@ -103,7 +106,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             max_features,
             self.pruning,
             self.max_depth,
-            self.n_jobs,
+            (os.cpu_count() or 1) if self.n_jobs == -1 else self.n_jobs,
             self.random_state,
             self.importance_scale,
             self.store_history,
@@ -149,7 +152,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         supported_importances = {"permutation", "gain", "split", "shap"}
         if self.estimator is None and self.forest_backend == "native":
             supported_importances = {"permutation"}
-        if self.importance not in supported_importances:
+        if self.importance is not None and self.importance not in supported_importances:
             choices = ", ".join(sorted(supported_importances))
             raise ValueError(f"importance must be one of: {choices}")
         if self.importance_scale not in {"zscore", "raw"}:
@@ -166,14 +169,20 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                 raise ValueError("max_features must be finite")
             if isinstance(self.max_features, float) and self.max_features > 1:
                 raise ValueError("a floating max_features value must be at most 1")
-        if isinstance(self.n_jobs, bool) or not isinstance(self.n_jobs, Integral) or self.n_jobs < 1:
-            raise ValueError("n_jobs must be a positive integer")
+        if isinstance(self.n_jobs, bool) or not isinstance(self.n_jobs, Integral) or self.n_jobs == 0 or self.n_jobs < -1:
+            raise ValueError("n_jobs must be -1 or a positive integer")
         if self.random_state is not None and (
             isinstance(self.random_state, bool) or not isinstance(self.random_state, Integral)
         ):
             raise ValueError("random_state must be an integer or None")
         if self.random_state is not None and self.random_state < 0:
             raise ValueError("random_state must be non-negative")
+        if self.max_bins is not None and (
+            isinstance(self.max_bins, bool)
+            or not isinstance(self.max_bins, Integral)
+            or not 2 <= self.max_bins <= 255
+        ):
+            raise ValueError("max_bins must be an integer from 2 to 255 or None")
         if not isinstance(self.store_history, bool):
             raise ValueError("store_history must be a bool")
         if self.forest_backend not in {"native", "bankai"}:
@@ -203,16 +212,18 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                 "install bankai-boruta[bankai-rf]"
             ) from error
 
+        importance_type = self.importance or "gain"
         estimator = BankaiRandomForestClassifier(
             n_estimators=self.n_estimators,
             max_depth=self.max_depth,
             max_features=self.max_features,
             n_jobs=self.n_jobs,
             random_state=self.random_state,
-            importance_type=self.importance,
+            importance_type=importance_type,
+            max_bins=self.max_bins,
         )
         getter = self.importance_getter
-        if getter == "auto" and self.importance == "permutation":
+        if getter == "auto" and importance_type == "permutation":
             # XRF permutation importance can be negative. Boruta's external
             # provider accepts non-negative values; subtracting one shared
             # minimum preserves every real-versus-shadow comparison.
