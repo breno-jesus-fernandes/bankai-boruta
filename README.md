@@ -31,10 +31,6 @@ Python 3.11 or newer is required. The release installation command is:
 python -m pip install bankai-boruta
 ```
 
-BankaiRF **0.1.0a15** is a required dependency and installs automatically, without
-an integration extra. For the unpublished a3 branch, install a CI wheel or run
-`python -m pip install .` from this checkout.
-
 ## Quick start
 
 This example generates a binary classification dataset with 1,000 rows and 20
