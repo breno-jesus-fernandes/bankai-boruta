@@ -249,11 +249,13 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         # All other configurations retain a15 validation and parameter semantics.
         defaults = BankaiRandomForestClassifier(extra_trees=True, extra_trees_backend='binned', max_bins=63, max_depth=6, n_jobs=-1).get_params()
         allowed = {'n_estimators', 'random_state', 'max_depth', 'max_bins', 'extra_seed'}
-        if weights is not None or any(not np.array_equal(params[k], v) for k, v in defaults.items() if k not in allowed):
+        if weights is not None or any(type(params[k]) is not type(v) or not np.array_equal(params[k], v) for k, v in defaults.items() if k not in allowed):
             return False, 'configuration outside the validated native subset'
-        if params['max_depth'] is not None and (not isinstance(params['max_depth'], Integral) or params['max_depth'] < 1):
+        if self.n_estimators is None and (not isinstance(params['n_estimators'], Integral) or isinstance(params['n_estimators'], bool) or params['n_estimators'] < 1):
+            return False, 'tree count requires a15 parameter validation'
+        if params['max_depth'] is not None and (not isinstance(params['max_depth'], Integral) or isinstance(params['max_depth'], bool) or params['max_depth'] < 1):
             return False, 'depth requires a15 parameter validation'
-        if not isinstance(params['extra_seed'], Integral) or not 0 <= params['extra_seed'] < 2**64:
+        if not isinstance(params['extra_seed'], Integral) or isinstance(params['extra_seed'], bool) or not 0 <= params['extra_seed'] < 2**64:
             return False, 'Extra Trees seed requires a15 parameter validation'
         if not isinstance(params['max_bins'], Integral) or not 2 <= params['max_bins'] <= 255:
             return False, 'max_bins outside native subset'

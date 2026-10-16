@@ -21,12 +21,12 @@ invocation. We instead built a release wheel with `maturin build --release
 installed wheel, and ran `python -I scripts/smoke_installed.py`. CI uses its
 existing newer uv pin. Both wheel and source distribution built successfully.
 
-The local suite contains 56 Python cases and one Rust integration test. It
+The local suite contains 60 Python cases and one Rust integration test. It
 covers controlled constant and changing importance sequences, both statistical
 corrections, percentile changes, weak features and ranking, early stopping,
 strict tie handling, invalid importances, original string labels, multiclasse,
 weights, monotonic constraints with zero-constrained shadows, nested parameters,
-coefficient importances, pretrained estimator preservation, warm-start isolation,
+coefficient importances, pretrained estimator preservation, warm-start isolation, a15 parameter-type/error semantics,
 refits, zero selected
 features, few features, and exact/subnormal greedy round boundaries. Native
 parity also varies seeds, bins, depth, tree count and discrete/signed-zero input.

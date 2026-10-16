@@ -294,3 +294,21 @@ def test_warm_start_uses_fresh_shadow_forests(data, estimator_type):
     assert warm.estimator_.warm_start is True
     np.testing.assert_allclose(warm.importance_history_, cold.importance_history_, atol=1e-12)
     np.testing.assert_array_equal(warm.support_, cold.support_)
+
+
+@pytest.mark.parametrize('count,error', [(2.5, TypeError), (0, ValueError), (-1, OverflowError)])
+def test_native_does_not_coerce_invalid_estimator_tree_count(data, count, error):
+    base = BankaiRandomForestClassifier(n_estimators=count, extra_trees=True,
+        extra_trees_backend='binned', max_bins=63, max_depth=6, n_jobs=-1)
+    with pytest.raises(error):
+        BankaiBoruta(base, n_estimators=None, greedy=True).fit(*data)
+
+
+def test_unvalidated_parameter_types_preserve_a15_semantics(data):
+    # a15 accepts True as one tree. The adapter preserves that behavior without
+    # broadening the native subset or coercing the supplied constructor value.
+    base = BankaiRandomForestClassifier(n_estimators=True, extra_trees=True,
+        extra_trees_backend='binned', max_bins=63, max_depth=6, n_jobs=-1)
+    s = BankaiBoruta(base, n_estimators=None, greedy=True, random_state=2).fit(*data)
+    assert s.diagnostics_['path'] == 'python'
+    assert s.estimator_.n_estimators is True
