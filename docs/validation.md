@@ -21,7 +21,10 @@ invocation. We instead built a release wheel with `maturin build --release
 installed wheel, and ran `python -I scripts/smoke_installed.py`. CI uses its
 existing newer uv pin. Both wheel and source distribution built successfully.
 
-The local suite contains 60 Python cases and one Rust integration test. It
+The selector suite contains 60 Python cases and one Rust integration test.
+Ten additional release tests validate artifact completeness, platform coverage,
+version and dependency metadata, draft publication, checksum verification and
+recovery after interrupted uploads. The combined Python suite has 70 cases. It
 covers controlled constant and changing importance sequences, both statistical
 corrections, percentile changes, weak features and ranking, early stopping,
 strict tie handling, invalid importances, original string labels, multiclasse,
