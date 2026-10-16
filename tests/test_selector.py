@@ -279,3 +279,18 @@ def test_pretrained_estimator_remains_unchanged(data):
     np.testing.assert_array_equal(base.feature_importances_, importances)
     assert base.estimators_ == trees
     assert base.random_state == 42
+
+
+@pytest.mark.parametrize('estimator_type', [RandomForestClassifier, BankaiRandomForestClassifier])
+def test_warm_start_uses_fresh_shadow_forests(data, estimator_type):
+    import warnings
+    X, y = data
+    kwargs = dict(n_estimators=5, max_depth=3, n_jobs=1)
+    selector_kwargs = dict(n_estimators=None, greedy=True, random_state=42, store_history=True)
+    with warnings.catch_warnings(record=True) as caught:
+        warm = BankaiBoruta(estimator_type(warm_start=True, **kwargs), **selector_kwargs).fit(X, y)
+    cold = BankaiBoruta(estimator_type(warm_start=False, **kwargs), **selector_kwargs).fit(X, y)
+    assert not any('Warm-start' in str(item.message) for item in caught)
+    assert warm.estimator_.warm_start is True
+    np.testing.assert_allclose(warm.importance_history_, cold.importance_history_, atol=1e-12)
+    np.testing.assert_array_equal(warm.support_, cold.support_)

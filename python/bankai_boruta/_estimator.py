@@ -141,6 +141,9 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                 rng.shuffle(permutation)
             self.diagnostics_['preparation_seconds'] += perf_counter() - prep_started
             seed = int(rng.randint(np.iinfo(np.int32).max))
+            # A warm-start forest must not retain trees trained on old shadows.
+            if params.get('warm_start', False):
+                self.estimator_ = clone(base)
             updates = {}
             if self.n_estimators is not None:
                 updates['n_estimators'] = max(1, int(100 * sqrt(2 * len(active)) / (params.get('max_depth') or 10))) if self.n_estimators == 'auto' else self.n_estimators

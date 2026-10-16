@@ -21,12 +21,13 @@ invocation. We instead built a release wheel with `maturin build --release
 installed wheel, and ran `python -I scripts/smoke_installed.py`. CI uses its
 existing newer uv pin. Both wheel and source distribution built successfully.
 
-The local suite contains 54 Python cases and one Rust integration test. It
+The local suite contains 56 Python cases and one Rust integration test. It
 covers controlled constant and changing importance sequences, both statistical
 corrections, percentile changes, weak features and ranking, early stopping,
 strict tie handling, invalid importances, original string labels, multiclasse,
 weights, monotonic constraints with zero-constrained shadows, nested parameters,
-coefficient importances, pretrained estimator preservation, refits, zero selected
+coefficient importances, pretrained estimator preservation, warm-start isolation,
+refits, zero selected
 features, few features, and exact/subnormal greedy round boundaries. Native
 parity also varies seeds, bins, depth, tree count and discrete/signed-zero input.
 
@@ -140,7 +141,9 @@ validation.
 ## Wheel/platform verification
 
 The macOS ARM64 CPython 3.11 ABI3 wheel was built, installed and smoke-tested
-locally. A source distribution was also built. BankaiRF a15 publishes wheels
+locally. A clean environment automatically installed the pinned BankaiRF
+dependency and passed the same wheel smoke on Python 3.14.7. A source distribution
+was also built and successfully rebuilt into a wheel from its extracted source. BankaiRF a15 publishes wheels
 for all five platform families in the existing CI matrix. CI now runs the
 installed-wheel smoke on each platform in addition to Python 3.11–3.14 and Rust
 tests. Linux x86_64/ARM64, Windows x86_64, macOS x86_64 and other Python versions

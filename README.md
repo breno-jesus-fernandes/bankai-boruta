@@ -64,7 +64,8 @@ reason, preparation/training time, input conversion time, augmented matrix copy
 time/bytes and storage rebuilds. Copy metrics cover the augmented float matrix;
 they do not count a15 internal bin/cache allocations. On the native path,
 `estimator_` holds cloned configuration; on the adapter path it holds the last
-round's fitted classifier, trained on augmented columns.
+round's fitted classifier, trained on augmented columns. With `warm_start=True`,
+a fresh clone is used per round so trees cannot retain previous shadows.
 `verbose` enables per-round output. Feature names, cloning, pipelines,
 `get_support`, and `get_feature_names_out` follow scikit-learn.
 
