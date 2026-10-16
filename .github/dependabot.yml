@@ -2,6 +2,9 @@ version: 2
 updates:
   - package-ecosystem: cargo
     directory: /
+    groups:
+      arrow:
+        patterns: ["arrow-*"]
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
