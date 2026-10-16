@@ -21,8 +21,7 @@ Classic Boruta is the default; `greedy=True` enables the fixed-round Greedy Boru
 variant. BankaiRF supplies binned Extra Trees, gain importance and parallel tree
 training through a scikit-learn-compatible selector for classification.
 
-⚠️ Bankai Boruta is in Alpha. Its API and fitted objects may change. This branch
-prepares version **0.1.0a3**.
+⚠️ Bankai Boruta is in Alpha. Its API and fitted objects may change.
 
 ## Install
 
