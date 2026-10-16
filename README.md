@@ -1,4 +1,19 @@
-# Bankai Boruta 0.1.0a3
+# 🔥 Bankai Boruta
+
+[![PyPI Latest Release](https://img.shields.io/pypi/v/bankai-boruta.svg)](https://pypi.org/project/bankai-boruta/)
+[![Package Status](https://img.shields.io/pypi/status/bankai-boruta.svg)](https://pypi.org/project/bankai-boruta/)
+[![Python versions](https://img.shields.io/pypi/pyversions/bankai-boruta.svg)](https://pypi.org/project/bankai-boruta/)
+[![uv managed](https://img.shields.io/badge/uv-managed-blue)](https://docs.astral.sh/uv/)
+[![Downloads](https://static.pepy.tech/badge/bankai-boruta)](https://pepy.tech/project/bankai-boruta)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](COPYING)
+[![CI](https://github.com/breno-jesus-fernandes/bankai-boruta/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/breno-jesus-fernandes/bankai-boruta/actions/workflows/ci.yml)
+[![Dependency security](https://github.com/breno-jesus-fernandes/bankai-boruta/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/breno-jesus-fernandes/bankai-boruta/actions/workflows/security.yml)
+[![Coverage](https://codecov.io/gh/breno-jesus-fernandes/bankai-boruta/branch/main/graph/badge.svg)](https://codecov.io/gh/breno-jesus-fernandes/bankai-boruta)
+[![GitHub Release](https://img.shields.io/github/v/release/breno-jesus-fernandes/bankai-boruta?include_prereleases)](https://github.com/breno-jesus-fernandes/bankai-boruta/releases)
+[![PyPI deployment](https://img.shields.io/github/deployments/breno-jesus-fernandes/bankai-boruta/pypi?label=PyPI%20deployment)](https://github.com/breno-jesus-fernandes/bankai-boruta/deployments)
+[![GitHub stars](https://img.shields.io/github/stars/breno-jesus-fernandes/bankai-boruta.svg?style=social)](https://github.com/breno-jesus-fernandes/bankai-boruta)
+
+Version **0.1.0a3**.
 
 Classification feature selection with a scikit-learn interface. Classic Boruta
 is the default; `greedy=True` selects features that beat the shadow percentile
