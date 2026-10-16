@@ -2,7 +2,7 @@ name: CI and release artifacts
 
 on:
   push:
-    branches: [main, develop, feature/greedy-bankai-a15]
+    branches: [main, develop]
     paths-ignore:
       - '**/*.md'
   pull_request:
