@@ -146,8 +146,12 @@ dependency and passed the same wheel smoke on Python 3.14.7. A source distributi
 was also built and successfully rebuilt into a wheel from its extracted source. BankaiRF a15 publishes wheels
 for all five platform families in the existing CI matrix. CI now runs the
 installed-wheel smoke on each platform in addition to Python 3.11–3.14 and Rust
-tests. Linux x86_64/ARM64, Windows x86_64, macOS x86_64 and other Python versions
-require the remote CI results; local success does not certify those platforms.
+tests. The [final CI run](https://github.com/breno-jesus-fernandes/bankai-boruta/actions/runs/38834117718)
+passed on code commit `d2c2684025be07440e59cd9ae0ef50449b8889ac`: all eight
+Python/Rust test configurations, all five platform wheel builds and installed-wheel
+smokes, source distribution and SBOM collection succeeded. Attestation,
+GitHub release creation and PyPI publishing were skipped. Subsequent README
+edits preserve the same tested code; their Python examples were executed locally.
 No merge to main or PyPI publication is part of this delivery.
 
 ## Reference sources
