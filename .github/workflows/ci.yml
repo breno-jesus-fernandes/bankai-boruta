@@ -2,7 +2,7 @@ name: CI and release artifacts
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, feature/greedy-bankai-a15]
     paths-ignore:
       - '**/*.md'
   pull_request:
@@ -94,7 +94,7 @@ jobs:
         run: uv python install ${{ matrix.python }}
 
       - name: Install project and test dependencies
-        run: uv sync --python ${{ matrix.python }} --locked --no-install-project --extra test --extra arrow-test
+        run: uv sync --python ${{ matrix.python }} --locked --no-install-project --extra test
 
       - name: Add uv Python shared library to runtime path
         if: matrix.runner == 'ubuntu-24.04' || matrix.runner == 'ubuntu-24.04-arm'
@@ -193,6 +193,18 @@ jobs:
             *) echo "Unknown wheel target: ${WHEEL_TARGET}" >&2; exit 1 ;;
           esac
           echo "Validated ${wheel}"
+
+      - name: Install uv for installed-wheel smoke
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: 0.12.21
+
+      - name: Smoke-test installed wheel
+        shell: bash
+        run: |
+          uv python install 3.11
+          wheels=(dist/*.whl)
+          uv run --no-project --python 3.11 --with "${wheels[0]}" python -I scripts/smoke_installed.py
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

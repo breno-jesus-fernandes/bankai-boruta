@@ -1,64 +1,7 @@
-"""Select features with Bankai Boruta's built-in native Rust forest."""
-
-import numpy as np
 from sklearn.datasets import make_classification
-from sklearn.metrics import accuracy_score
-from sklearn.model_selection import train_test_split
-
 from bankai_boruta import BankaiBoruta
-from bankai_random_forest import BankaiRandomForestClassifier
 
-
-def main() -> None:
-    # The first 5 features carry signal; the remaining 15 are noise.
-    X, y = make_classification(
-        n_samples=800,
-        n_features=20,
-        n_informative=5,
-        n_redundant=0,
-        n_repeated=0,
-        n_classes=2,
-        class_sep=1.2,
-        random_state=42,
-    )
-    feature_names = np.asarray([f"feature_{i:02d}" for i in range(X.shape[1])])
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=0.25,
-        random_state=42,
-        stratify=y,
-    )
-
-    # With no estimator argument, Boruta uses its built-in native Rust forest.
-    selector = BankaiBoruta(
-        n_estimators=300,
-        max_iter=100,
-        max_features="sqrt",
-        max_depth=32,
-        random_state=42,
-        n_jobs=1,
-    )
-    selector.fit(X_train, y_train)
-
-    accepted_names = feature_names[selector.support_]
-    tentative_names = feature_names[selector.support_weak_]
-    print(f"Iterations: {selector.n_iter_} ({selector.stop_reason_})")
-    print(f"Accepted features ({len(accepted_names)}): {accepted_names.tolist()}")
-    print(f"Tentative features ({len(tentative_names)}): {tentative_names.tolist()}")
-
-    X_train_selected = selector.transform(X_train)
-    X_test_selected = selector.transform(X_test)
-    if X_train_selected.shape[1] == 0:
-        raise RuntimeError("Boruta did not confirm any features; inspect tentative features")
-
-    # Fit and evaluate Bankai Random Forest on the features selected by Boruta.
-    model = BankaiRandomForestClassifier(n_estimators=300, random_state=42)
-    model.fit(X_train_selected, y_train)
-    predictions = model.predict(X_test_selected)
-    print(f"Test accuracy with accepted features: {accuracy_score(y_test, predictions):.3f}")
-
-
-if __name__ == "__main__":
-    main()
+X, y = make_classification(n_samples=500, n_features=20, random_state=42)
+selector = BankaiBoruta(random_state=42, greedy=True)
+print(selector.fit_transform(X, y).shape)
+print(selector.diagnostics_)
