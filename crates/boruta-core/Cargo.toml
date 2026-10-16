@@ -3,10 +3,9 @@ name = "boruta-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Native Rust core for Bankai Boruta feature selection."
+description = "BankaiRF a15 virtual-shadow importance engine for Boruta."
 repository = "https://github.com/breno-jesus-fernandes/bankai-boruta"
-homepage = "https://github.com/breno-jesus-fernandes/bankai-boruta"
 
 [dependencies]
-bankai-forest-core = { git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "2f0f908", version = "=0.1.0" }
-thiserror.workspace = true
+bankai-random-forest = { version = "=0.1.0-alpha.15", git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "caa46c22ef93434cd87319490513e877d4378564" }
+xrf = { version = "=1.0.0", git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "caa46c22ef93434cd87319490513e877d4378564" }

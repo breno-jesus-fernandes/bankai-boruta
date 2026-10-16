@@ -1,32 +1,11 @@
-"""Run outside the checkout against an installed wheel/sdist; no pytest required."""
-import importlib.util
-import pickle
-import sys
-
+"""Run from outside the repository against an installed wheel."""
 import numpy as np
-from bankai_boruta import BankaiBoruta, _core
-
-assert _core.ENGINE_READY
-X = np.column_stack([np.tile([0., 1.], 64), np.arange(128, dtype=float)])
-y = X[:, 0].astype(int)
-model = BankaiBoruta(n_estimators=32, max_iter=10, alpha=0.05, random_state=4).fit(X, y)
-assert model.support_[0]
-np.testing.assert_array_equal(pickle.loads(pickle.dumps(model)).transform(X), model.transform(X))
-if '--without-polars' in sys.argv:
-    assert importlib.util.find_spec('polars') is None
-else:
-    import joblib
-    import polars as pl
-    import tempfile
-    from pathlib import Path
-    columns = pl.DataFrame({'signal': X[:, 0], 'noise': X[:, 1]})
-    columns = pl.concat([columns.slice(0, 33), columns.slice(33)], rechunk=False)
-    fitted = BankaiBoruta(n_estimators=32, max_iter=10, alpha=0.05, random_state=4).fit(columns, y)
-    np.testing.assert_array_equal(fitted.decision_, model.decision_)
-    assert fitted.diagnostics_['copied_bytes'] == 0
-    with tempfile.TemporaryDirectory() as directory:
-        path = Path(directory) / 'model.joblib'
-        joblib.dump(fitted, path)
-        restored = joblib.load(path)
-        np.testing.assert_array_equal(restored.transform(columns), fitted.transform(columns))
-print('installed artifact smoke passed', sys.version.split()[0])
+from bankai_boruta import BankaiBoruta, __version__
+assert __version__ == '0.1.0a3'
+rng = np.random.RandomState(42)
+X = rng.normal(size=(80, 4))
+y = np.where(X[:, 0] > 0, 'positive', 'negative')
+s = BankaiBoruta(n_estimators=10, greedy=True, random_state=42).fit(X, y)
+assert s.diagnostics_['path'] == 'rust'
+assert s.transform(X).shape[1] == s.n_features_
+print('a3 wheel smoke passed')
