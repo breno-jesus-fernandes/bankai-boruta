@@ -6,13 +6,59 @@
 //! This crate is the only local unsafe boundary; boruta-core and the Python binding
 //! continue to forbid unsafe code. Keep the GIL during import and final owner drop.
 use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema, from_ffi_and_data_type};
-use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use arrow_array::{Array, ArrayRef, RecordBatch, StructArray, make_array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyCapsule;
-use std::{ffi::CStr, sync::Arc};
+use std::{
+    ffi::{CStr, c_char, c_int, c_void},
+    sync::Arc,
+};
+
+/// The public Arrow C Stream ABI, independent of arrow-rs' private Rust fields.
+/// See https://arrow.apache.org/docs/format/CStreamInterface.html#structure-definitions
+#[repr(C)]
+struct CArrowArrayStream {
+    get_schema: Option<unsafe extern "C" fn(*mut Self, *mut FFI_ArrowSchema) -> c_int>,
+    get_next: Option<unsafe extern "C" fn(*mut Self, *mut FFI_ArrowArray) -> c_int>,
+    get_last_error: Option<unsafe extern "C" fn(*mut Self) -> *const c_char>,
+    release: Option<unsafe extern "C" fn(*mut Self)>,
+    private_data: *mut c_void,
+}
+
+impl CArrowArrayStream {
+    fn empty() -> Self {
+        Self {
+            get_schema: None,
+            get_next: None,
+            get_last_error: None,
+            release: None,
+            private_data: std::ptr::null_mut(),
+        }
+    }
+
+    /// Move a conforming producer's stream, leaving its original handle released.
+    ///
+    /// # Safety
+    /// `pointer` must be aligned, writable, and point to a valid ArrowArrayStream
+    /// following the public C Stream ABI. Its callbacks and buffers must obey the
+    /// producer contract for the duration of this handle's lifetime.
+    unsafe fn from_raw(pointer: *mut Self) -> Self {
+        // SAFETY: the caller guarantees a valid, uniquely accessed ABI handle.
+        unsafe { std::ptr::replace(pointer, Self::empty()) }
+    }
+}
+
+impl Drop for CArrowArrayStream {
+    fn drop(&mut self) {
+        if let Some(release) = self.release {
+            // SAFETY: this handle owns the producer's stream; moving it clears the
+            // source handle. The producer must release resources and clear release.
+            unsafe { release(self) };
+        }
+    }
+}
 
 /// Consume a fresh protocol capsule exactly once. All callbacks execute under the GIL.
 fn import_arrays(object: &Bound<'_, PyAny>) -> PyResult<(Vec<ArrayRef>, Field)> {
@@ -21,10 +67,10 @@ fn import_arrays(object: &Bound<'_, PyAny>) -> PyResult<(Vec<ArrayRef>, Field)> 
         .cast_into::<PyCapsule>()?;
     let pointer = capsule
         .pointer_checked(Some(c"arrow_array_stream"))?
-        .cast::<FFI_ArrowArrayStream>();
+        .cast::<CArrowArrayStream>();
     // SAFETY: a correctly named protocol capsule owns a valid ArrowArrayStream. Moving
     // via from_raw replaces it with an empty stream, so its destructor cannot double free.
-    let stream = unsafe { FFI_ArrowArrayStream::from_raw(pointer.as_ptr()) };
+    let stream = unsafe { CArrowArrayStream::from_raw(pointer.as_ptr()) };
     drain_stream(stream).map_err(PyValueError::new_err)
 }
 
@@ -63,7 +109,7 @@ pub fn import_column(object: &Bound<'_, PyAny>) -> PyResult<Vec<ArrayRef>> {
     Ok(arrays)
 }
 
-fn stream_error(stream: &mut FFI_ArrowArrayStream, code: i32) -> String {
+fn stream_error(stream: &mut CArrowArrayStream, code: i32) -> String {
     if let Some(callback) = stream.get_last_error {
         // SAFETY: owned live stream; callback and returned C string follow C Stream ABI.
         let message = unsafe { callback(stream) };
@@ -77,7 +123,7 @@ fn stream_error(stream: &mut FFI_ArrowArrayStream, code: i32) -> String {
     format!("Arrow stream callback failed with code {code}")
 }
 
-fn drain_stream(mut stream: FFI_ArrowArrayStream) -> Result<(Vec<ArrayRef>, Field), String> {
+fn drain_stream(mut stream: CArrowArrayStream) -> Result<(Vec<ArrayRef>, Field), String> {
     if stream.release.is_none() {
         return Err("Arrow stream was already consumed/released".into());
     }
@@ -186,7 +232,9 @@ fn checked_span(offset: usize, length: usize, width: usize) -> Result<usize, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow_array::ffi_stream::FFI_ArrowArrayStream;
     use arrow_array::{Float64Array, RecordBatchReader};
+
     use arrow_schema::{ArrowError, Field};
     use std::collections::VecDeque;
     use std::sync::{
@@ -216,6 +264,58 @@ mod tests {
         }
     }
 
+    fn export_reader(reader: Reader) -> CArrowArrayStream {
+        let mut stream = FFI_ArrowArrayStream::new(Box::new(reader));
+        // SAFETY: arrow-rs exports the public repr(C) stream ABI. Moving it into
+        // our consumer empties the original before its arrow-rs destructor runs.
+        unsafe { CArrowArrayStream::from_raw((&raw mut stream).cast()) }
+    }
+
+    #[test]
+    fn moving_stream_clears_exporter_and_releases_reader_once() {
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let reader = Reader {
+            schema: Arc::new(Schema::new(vec![Field::new("x", DataType::Float64, false)])),
+            batches: VecDeque::new(),
+            dropped: dropped.clone(),
+        };
+        let mut exporter = FFI_ArrowArrayStream::new(Box::new(reader));
+        // SAFETY: the exporter is a live, uniquely accessed C Stream producer.
+        let imported = unsafe { CArrowArrayStream::from_raw((&raw mut exporter).cast()) };
+        assert!(exporter.release().is_none());
+        assert!(exporter.private_data().is_null());
+        drop(exporter);
+        assert_eq!(dropped.load(Ordering::SeqCst), 0);
+        assert!(drain_stream(imported).is_ok());
+        assert_eq!(dropped.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            drain_stream(CArrowArrayStream::empty()).unwrap_err(),
+            "Arrow stream was already consumed/released"
+        );
+    }
+
+    #[test]
+    fn missing_required_callbacks_release_reader() {
+        for missing_schema in [true, false] {
+            let dropped = Arc::new(AtomicUsize::new(0));
+            let reader = Reader {
+                schema: Arc::new(Schema::new(vec![Field::new("x", DataType::Float64, false)])),
+                batches: VecDeque::new(),
+                dropped: dropped.clone(),
+            };
+            let mut stream = export_reader(reader);
+            let expected = if missing_schema {
+                stream.get_schema = None;
+                "Arrow stream has no get_schema callback"
+            } else {
+                stream.get_next = None;
+                "Arrow stream has no get_next callback"
+            };
+            assert_eq!(drain_stream(stream).unwrap_err(), expected);
+            assert_eq!(dropped.load(Ordering::SeqCst), 1);
+        }
+    }
+
     #[test]
     fn rejects_address_overflow_without_touching_memory() {
         assert!(checked_span(usize::MAX, 1, 8).is_err());
@@ -226,7 +326,7 @@ mod tests {
     #[test]
     fn schema_callback_failure_releases_stream_and_unread_buffers() {
         unsafe extern "C" fn fail_schema(
-            _: *mut FFI_ArrowArrayStream,
+            _: *mut CArrowArrayStream,
             _: *mut FFI_ArrowSchema,
         ) -> i32 {
             1
@@ -241,10 +341,13 @@ mod tests {
             batches: VecDeque::from([Ok(batch)]),
             dropped: dropped.clone(),
         };
-        let mut stream = FFI_ArrowArrayStream::new(Box::new(reader));
+        let mut stream = export_reader(reader);
         stream.get_schema = Some(fail_schema);
         stream.get_last_error = None;
-        assert!(drain_stream(stream).is_err());
+        assert_eq!(
+            drain_stream(stream).unwrap_err(),
+            "Arrow stream callback failed with code 1"
+        );
         assert_eq!(dropped.load(Ordering::SeqCst), 1);
         assert_eq!(buffer.strong_count(), 1);
     }
@@ -266,11 +369,16 @@ mod tests {
                 batches,
                 dropped: dropped.clone(),
             };
-            let stream = FFI_ArrowArrayStream::new(Box::new(reader));
+            let stream = export_reader(reader);
             let imported = drain_stream(stream);
             assert_eq!(dropped.load(Ordering::SeqCst), 1);
             if fail {
-                assert!(imported.is_err());
+                assert!(
+                    imported
+                        .as_ref()
+                        .unwrap_err()
+                        .contains("deliberate failure")
+                );
             } else {
                 assert!(imported.is_ok());
                 assert!(buffer.strong_count() > 1);
