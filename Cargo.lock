@@ -34,7 +34,7 @@ dependencies = [
  "ahash",
  "arrow-buffer",
  "arrow-data",
- "arrow-schema 60.0.0",
+ "arrow-schema",
  "chrono",
  "half",
  "hashbrown",
@@ -63,17 +63,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5aa06d5e22786c4966ffc4d2f171d0cb65d95f6bdea108a14e8c335e9faa437f"
 dependencies = [
  "arrow-buffer",
- "arrow-schema 60.0.0",
+ "arrow-schema",
  "half",
  "num-integer",
  "num-traits",
 ]
-
-[[package]]
-name = "arrow-schema"
-version = "59.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10fab8d4563491417ba801fab29d205104d20d4bdf37bda6cd1cf425cff598cd"
 
 [[package]]
 name = "arrow-schema"
@@ -95,7 +89,7 @@ name = "bankai-arrow-ffi"
 version = "0.1.0-alpha.2"
 dependencies = [
  "arrow-array",
- "arrow-schema 59.3.0",
+ "arrow-schema",
  "pyo3",
 ]
 
@@ -104,7 +98,7 @@ name = "bankai-boruta-python"
 version = "0.1.0-alpha.2"
 dependencies = [
  "arrow-array",
- "arrow-schema 59.3.0",
+ "arrow-schema",
  "bankai-arrow-ffi",
  "boruta-core",
  "numpy",
