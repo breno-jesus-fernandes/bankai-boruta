@@ -20,7 +20,7 @@ git clone https://github.com/<your-user>/bankai-boruta.git
 cd bankai-boruta
 git remote add upstream https://github.com/breno-jesus-fernandes/bankai-boruta.git
 uv python install 3.11
-uv sync --locked --no-install-project --extra test --extra arrow-test
+uv sync --locked --no-install-project --extra test
 uv run --no-sync maturin develop --release --locked
 ```
 
