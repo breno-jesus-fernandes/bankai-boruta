@@ -1,4 +1,4 @@
-"""Validate the complete a3 release set before attestation or publication."""
+"""Validate the complete release set before attestation or publication."""
 from email.parser import BytesParser
 import hashlib
 from pathlib import Path
