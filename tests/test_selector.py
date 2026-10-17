@@ -221,7 +221,7 @@ def test_bad_native_arrays():
     from bankai_boruta import _boruta_core
     with pytest.raises(ValueError):
         _boruta_core.gain_importances(np.ones((3, 1)), np.array([0, 1, 0], dtype=np.int64),
-            np.array([0], dtype=np.int64), np.array([2], dtype=np.int64), np.zeros((1, 3), dtype=np.int64), 2, 6, 1, 63, 6)
+            np.array([0], dtype=np.int64), np.array([2], dtype=np.int64), np.zeros((1, 3), dtype=np.int64), 2, 6, 1, 63, 6, 1, 1)
 
 
 @pytest.mark.parametrize('perc', [50, 100])

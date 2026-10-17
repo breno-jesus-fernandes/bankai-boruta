@@ -1,7 +1,7 @@
 use boruta_core::gain_importances;
 #[test]
 fn gain_is_normalized_and_reproducible() {
-    let run = || {
+    let run = |threads, max_features| {
         gain_importances(
             50,
             2,
@@ -11,6 +11,8 @@ fn gain_is_normalized_and_reproducible() {
             42,
             16,
             6,
+            threads,
+            max_features,
             |row, col| {
                 if col == 0 {
                     row as f64
@@ -21,8 +23,8 @@ fn gain_is_normalized_and_reproducible() {
         )
         .unwrap()
     };
-    let a = run();
-    let b = run();
+    let a = run(1, 1);
+    let b = run(4, 1);
     for (a, b) in a.importances.iter().zip(&b.importances) {
         assert!((a - b).abs() < 1e-12);
     }
