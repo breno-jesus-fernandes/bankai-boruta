@@ -160,6 +160,40 @@ selector.set_params(estimator__max_depth=7)
 selector.fit(X_train, y_train)
 ```
 
+### Native forest controls for benchmarks
+
+The validated binned Extra Trees gain configuration honors the supplied
+`BankaiRandomForestClassifier.n_jobs` and `max_features` on the native path.
+For example, this configuration keeps virtual shadows with four workers and
+fractional feature sampling:
+
+```python
+forest = BankaiRandomForestClassifier(
+    n_estimators=150, max_depth=8, max_bins=63,
+    extra_trees=True, extra_trees_backend="binned", importance_type="gain",
+    n_jobs=4, max_features=0.15,
+)
+selector = BankaiBoruta(forest, n_estimators=150, random_state=42)
+selector.fit(X_train, y_train)
+assert selector.diagnostics_["path"] == "rust"
+```
+
+Both controls use the pinned a15 forest's validation and resolution rules:
+`n_jobs=None` means one worker, positive values specify the worker count, and
+negative values resolve relative to the CPU count. `max_features` accepts
+`"sqrt"`, `"log2"`, a positive integer, a fraction in `(0, 1]`, or `None`.
+Feature counts resolve against each round's current real-plus-shadow width,
+including after Classic rejects columns, and fractional counts are floored
+with a minimum of one. Integer counts must fit that round's width. The resolved
+worker count controls native preparation and forest training; tree parallelism
+is capped by the number of trees.
+
+Other forest settings must still meet native eligibility. To benchmark the
+materialized Python adapter with the same forest, set
+`importance_getter="feature_importances_"` and assert
+`selector.diagnostics_["path"] == "python"`. Native virtual shadows avoid the
+augmented dense matrix; input conversion to float64 can still allocate.
+
 `fit(X, y, sample_weight=None)` accepts non-negative sample weights with positive
 total weight. Classic selection counts hits and uses binomial tests; its final
 median comparison marks surviving tentative features as weak. The fitted

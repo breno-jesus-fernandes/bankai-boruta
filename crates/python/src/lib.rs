@@ -16,6 +16,8 @@ fn gain_importances(
     seed: u64,
     bins: usize,
     extra_seed: u64,
+    threads: usize,
+    max_features: usize,
 ) -> PyResult<(Vec<f64>, f64, f64)> {
     let preparation_start = std::time::Instant::now();
     let x = x.as_array();
@@ -32,6 +34,9 @@ fn gain_importances(
     if rows == 0
         || columns == 0
         || labels.len() != rows
+        || threads == 0
+        || max_features == 0
+        || max_features > active.len() + sources.len()
         || trees == 0
         || depth == 0
         || !(2..=255).contains(&bins)
@@ -80,6 +85,8 @@ fn gain_importances(
         seed,
         bins,
         extra_seed,
+        threads,
+        max_features,
         |row, col| value(order[row], col),
     )
     .map_err(PyValueError::new_err)?;

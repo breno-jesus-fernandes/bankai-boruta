@@ -160,7 +160,8 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                 from . import _boruta_core
                 scores, prep, train = _boruta_core.gain_importances(X, encoded, active.astype(np.int64), sources.astype(np.int64), permutations,
                     int(self.estimator_.n_estimators), int(params['max_depth'] or 512), int(check_random_state(seed).randint(np.iinfo(np.int32).max)),
-                    int(params['max_bins']), int(params['extra_seed']))
+                    int(params['max_bins']), int(params['extra_seed']),
+                    self.estimator_._resolve_n_jobs(), self._native_max_features(len(active) + len(sources)))
                 self.diagnostics_['preparation_seconds'] += prep
                 self.diagnostics_['training_seconds'] += train
                 self.diagnostics_['training_storage_rebuilds'] += 1
@@ -242,13 +243,18 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         self.diagnostics_['fit_seconds'] = perf_counter() - started
         return self
 
+    def _native_max_features(self, width):
+        # Reuse the pinned forest's validation and exact resolution semantics.
+        self.estimator_.n_features_in_ = width
+        return self.estimator_._resolve_max_features()
+
     def _native_eligibility(self, base, params, weights):
         from bankai_random_forest import BankaiRandomForestClassifier
         if type(base) is not BankaiRandomForestClassifier or self.importance_getter != 'auto':
             return False, 'external estimator or custom importance getter'
         # All other configurations retain a15 validation and parameter semantics.
         defaults = BankaiRandomForestClassifier(extra_trees=True, extra_trees_backend='binned', max_bins=63, max_depth=6, n_jobs=-1).get_params()
-        allowed = {'n_estimators', 'random_state', 'max_depth', 'max_bins', 'extra_seed'}
+        allowed = {'n_estimators', 'random_state', 'max_depth', 'max_bins', 'extra_seed', 'n_jobs', 'max_features'}
         if weights is not None or any(type(params[k]) is not type(v) or not np.array_equal(params[k], v) for k, v in defaults.items() if k not in allowed):
             return False, 'configuration outside the validated native subset'
         if self.n_estimators is None and (not isinstance(params['n_estimators'], Integral) or isinstance(params['n_estimators'], bool) or params['n_estimators'] < 1):

@@ -20,12 +20,17 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
     seed: u64,
     bins: usize,
     extra_seed: u64,
+    threads: usize,
+    max_features: usize,
     value: F,
 ) -> Result<GainResult, String> {
     let start = Instant::now();
     if rows == 0
         || columns == 0
         || labels.len() != rows
+        || threads == 0
+        || max_features == 0
+        || max_features > columns
         || trees == 0
         || depth == 0
         || !(2..=255).contains(&bins)
@@ -37,7 +42,6 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
         return Err("invalid classification labels".into());
     }
     let classes = max_label + 1;
-    let threads = std::thread::available_parallelism().map_or(1, usize::from);
     let input = DenseInput::training_binned_with_accessor_and_seed(
         rows,
         columns,
@@ -64,7 +68,7 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
     let forest = Forest::new_parallel_with_settings(
         &input,
         trees,
-        (columns as f64).sqrt() as usize,
+        max_features,
         true,
         false,
         false,
@@ -102,4 +106,27 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
         preparation_seconds,
         training_seconds: start.elapsed().as_secs_f64(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn rejects_invalid_native_controls() {
+        for (threads, max_features) in [(0, 1), (1, 0), (1, 3)] {
+            let result = super::gain_importances(
+                3,
+                2,
+                vec![0, 1, 0],
+                2,
+                3,
+                1,
+                63,
+                6,
+                threads,
+                max_features,
+                |row, column| (row + column) as f64,
+            );
+            assert!(matches!(result, Err(message) if message == "invalid training settings"));
+        }
+    }
 }
