@@ -10,7 +10,7 @@ import pytest
 from scripts.release_artifacts import SBOMS, project_release, verify_artifacts
 from scripts.publish_github_release import ensure_release
 
-VERSION = '0.1.0a3'
+VERSION = '0.1.0a4'
 PIN = 'bankai-random-forest==0.1.0a15'
 
 
@@ -65,7 +65,7 @@ def test_incomplete_or_mismatched_release_is_rejected(artifacts, corruption):
 
 def test_version_alignment(tmp_path):
     (tmp_path / 'pyproject.toml').write_text(f'[project]\nversion="{VERSION}"\ndependencies=["{PIN}"]\n')
-    (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.3"\n')
+    (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.4"\n')
     assert project_release(tmp_path) == (VERSION, PIN)
     (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.2"\n')
     with pytest.raises(ValueError, match='versions differ'):
@@ -89,7 +89,7 @@ class FakeGitHub:
         if path.endswith('/releases'):
             self.creates += 1
             assert data['draft'] is True
-            self.release = dict(data, id=1, assets=[], upload_url='https://uploads.github.com/test{?name,label}', html_url='https://github.com/test/releases/v0.1.0a3')
+            self.release = dict(data, id=1, assets=[], upload_url='https://uploads.github.com/test{?name,label}', html_url='https://github.com/test/releases/v0.1.0a4')
             return copy.deepcopy(self.release)
         from urllib.parse import parse_qs, urlparse
         name = parse_qs(urlparse(path).query)['name'][0]
@@ -128,3 +128,20 @@ def test_existing_asset_is_not_silently_overwritten(artifacts):
     with pytest.raises(ValueError, match='differs'):
         ensure_release(client, 'owner/repo', VERSION, 'abc123', paths)
     assert client.publishes == 1
+
+
+def test_current_release_versions_are_consistent():
+    import tomllib
+    from bankai_boruta import __version__
+
+    root = Path(__file__).resolve().parents[1]
+    version, _ = project_release(root)
+    assert __version__ == version == VERSION
+    rust_version = tomllib.loads((root / 'Cargo.toml').read_text())['workspace']['package']['version']
+    boundary = tomllib.loads((root / 'crates/python/Cargo.toml').read_text())
+    assert boundary['dependencies']['boruta-core']['version'] == '=' + rust_version
+    python_lock = tomllib.loads((root / 'uv.lock').read_text())
+    assert next(p['version'] for p in python_lock['package'] if p['name'] == 'bankai-boruta') == version
+    rust_lock = tomllib.loads((root / 'Cargo.lock').read_text())
+    for name in ('boruta-core', 'bankai-boruta-python'):
+        assert next(p['version'] for p in rust_lock['package'] if p['name'] == name) == rust_version
