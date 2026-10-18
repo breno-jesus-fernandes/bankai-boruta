@@ -10,7 +10,7 @@ Candidate: Boruta a7, RF a16 source pinned to
 - BankaiRF: 269 Python tests; Rust workspace suites: 34 core, 5 integration,
   25 XRF tests, all passed. Exact tree multisets include splits, scores, leaves
   and covers for both bank dtypes, binary/multiclass, bootstrap and gini/entropy.
-- Boruta: 308 Python tests and Rust workspace tests passed. This includes
+- Boruta: 309 Python tests and Rust workspace tests passed. This includes
   original dtypes/layouts, repeated values/constants, active-list invalidation,
   duplicate shadows, controls, invalid maps, snapshot isolation, repeated fits,
   custom RandomState fallback, explicit owned-shuffle parity and RNG state,
@@ -37,6 +37,8 @@ under `benchmarks/results/exact-session-local-*.json`.
 | fixed 20,000 × 100 | 1 | 1.2176 | 0.8687 | 198.3 | 203.4 |
 | fixed 20,000 × 100 | 16 | 0.3137 | 0.2756 | 247.1 | 236.4 |
 | fixed 20,000 × 100 | 4 | 0.5000 | 0.3412 | 228.1 | 208.4 |
+| fixed 50,000 × 200 | 1 | 4.5805 | 3.3928 | 378.6 | 336.4 |
+| fixed 50,000 × 200 | 4 | 2.2463 | 1.6245 | 384.8 | 357.8 |
 
 Host: macOS-26.6.2-arm64-arm-64bit-Mach-O; 8 logical CPUs; 8 GiB RAM. The 16-worker cells oversubscribe this machine and must not be
 interpreted as 16 physical-core scaling. RSS is sampled externally every 5 ms
@@ -44,8 +46,13 @@ only during fit; VmHWM is unavailable on macOS. Absolute RSS in the small
 one-worker fixed cell did not improve and varies with process baseline. The
 buffer counters and RSS deltas do not override that observation.
 
-Larger 50,000 × 200 controlled measurements are in progress and will be
-recorded separately. Initial designs that retained a second permutation snapshot
+The larger 50,000 × 200 fixed workload also passed parity. At one worker,
+median fit time decreased 25.9% and median peak RSS decreased 11.2%; at four
+workers, median time decreased 27.7% and peak RSS decreased 7.0%. These remain
+local controlled results, not full Industrial acceptance. Preparation improved
+while training itself remains more expensive with indirect reads; the separate
+phase counters expose that tradeoff. Complete 2,000 × 40 fits converged in 22
+rounds on both paths. Initial designs that retained a second permutation snapshot
 or repeatedly dispatched dtype/maps in hot reads are preserved in
 `benchmarks/results/exact-session-development/`; they are not pooled with the
 final candidate. The final standard MT19937/u32 path keeps one explicit native

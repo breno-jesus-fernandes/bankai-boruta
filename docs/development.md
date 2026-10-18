@@ -61,3 +61,8 @@ The Python audit preserves hashes for registry dependencies, including the RF
 transitive requirements. Its export excludes only the immutable RF VCS project,
 which pip-audit cannot hash; that project's own audit runs in RF PR #21.
 Release tests check the full git revision against both manifests and lockfiles.
+
+PR installed-wheel smokes resolve RF from the same immutable development git pin.
+Publication builds instead resolve RF alpha16 from PyPI, so their success remains
+conditional on publishing RF first. Both paths exercise the installed exact
+session as well as the ordinary binned dtype smoke.
