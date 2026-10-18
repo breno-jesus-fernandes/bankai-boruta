@@ -10,8 +10,8 @@ import pytest
 from scripts.release_artifacts import SBOMS, project_release, verify_artifacts
 from scripts.publish_github_release import ensure_release
 
-VERSION = '0.1.0a6'
-PIN = 'bankai-random-forest==0.1.0a15'
+VERSION = '0.1.0a7'
+PIN = 'bankai-random-forest==0.1.0a16'
 
 
 def metadata(version=VERSION, pin=PIN):
@@ -65,7 +65,7 @@ def test_incomplete_or_mismatched_release_is_rejected(artifacts, corruption):
 
 def test_version_alignment(tmp_path):
     (tmp_path / 'pyproject.toml').write_text(f'[project]\nversion="{VERSION}"\ndependencies=["{PIN}"]\n')
-    (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.6"\n')
+    (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.7"\n')
     assert project_release(tmp_path) == (VERSION, PIN)
     (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.2"\n')
     with pytest.raises(ValueError, match='versions differ'):
@@ -89,7 +89,7 @@ class FakeGitHub:
         if path.endswith('/releases'):
             self.creates += 1
             assert data['draft'] is True
-            self.release = dict(data, id=1, assets=[], upload_url='https://uploads.github.com/test{?name,label}', html_url='https://github.com/test/releases/v0.1.0a6')
+            self.release = dict(data, id=1, assets=[], upload_url='https://uploads.github.com/test{?name,label}', html_url='https://github.com/test/releases/v0.1.0a7')
             return copy.deepcopy(self.release)
         from urllib.parse import parse_qs, urlparse
         name = parse_qs(urlparse(path).query)['name'][0]
@@ -145,3 +145,20 @@ def test_current_release_versions_are_consistent():
     rust_lock = tomllib.loads((root / 'Cargo.lock').read_text())
     for name in ('boruta-core', 'bankai-boruta-python'):
         assert next(p['version'] for p in rust_lock['package'] if p['name'] == name) == rust_version
+
+
+def test_immutable_forest_source_alignment():
+    import re
+    import tomllib
+    root = Path(__file__).resolve().parents[1]
+    project = tomllib.loads((root/'pyproject.toml').read_text())
+    source = project['tool']['uv']['sources']['bankai-random-forest']
+    assert re.fullmatch('[0-9a-f]{40}', source['rev'])
+    dependencies = tomllib.loads((root/'crates/boruta-core/Cargo.toml').read_text())['dependencies']
+    for name in ('bankai-random-forest', 'xrf'):
+        assert dependencies[name]['git'] == source['git']
+        assert dependencies[name]['rev'] == source['rev']
+    for lock in ('uv.lock','Cargo.lock'):
+        package = next(p for p in tomllib.loads((root/lock).read_text())['package'] if p['name']=='bankai-random-forest')
+        assert source['rev'] in str(package['source'])
+        assert package['version'] == ('0.1.0a16' if lock=='uv.lock' else '0.1.0-alpha.16')

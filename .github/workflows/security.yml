@@ -49,7 +49,10 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: 0.12.21
-      - name: Verify and export locked Python dependencies
-        run: uv export --locked --all-groups --all-extras --no-emit-project --format requirements-txt --output-file requirements-audit.txt
+      # The immutable RF development source is application code, audited in RF
+      # PR #21; pip-audit cannot hash VCS requirements. Keep all its registry
+      # dependencies in the hash-checked export, excluding only that exact package.
+      - name: Verify and export locked registry dependencies
+        run: uv export --locked --all-groups --all-extras --no-emit-project --no-emit-package bankai-random-forest --format requirements-txt --output-file requirements-audit.txt
       - name: Audit locked Python dependencies
         run: uvx --from pip-audit==2.10.1 pip-audit --disable-pip --no-deps --requirement requirements-audit.txt

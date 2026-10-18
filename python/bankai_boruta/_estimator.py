@@ -3,6 +3,7 @@ from math import sqrt
 from numbers import Integral, Real
 from operator import attrgetter
 from time import perf_counter
+import os
 import warnings
 
 import numpy as np
@@ -148,19 +149,38 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             native_input_dtype=str(X.dtype) if native else None,
             input_conversion_bytes=conversion_bytes,
             permutation_dtype=permutation_dtype.name, permutation_bytes=0)
+        # Experimental opt-in until the AMD acceptance campaign passes.
+        session = None
+        if native and self._native_settings_['backend'] == 'exact' and os.environ.get('BANKAI_BORUTA_EXACT_SESSION') == '1':
+            from . import _boruta_core
+            prep_started = perf_counter()
+            session = _boruta_core.ExactSession(X, encoded.astype(np.int64, copy=False))
+            session_seconds = perf_counter() - prep_started
+            self.diagnostics_.update(session_creation_seconds=session_seconds,
+                real_bank_bytes=X.nbytes, real_bank_copied_bytes=X.nbytes,
+                storage_mode='virtual_session', validation_seconds=0., shuffle_seconds=0.,
+                sorting_seconds=0., storage_seconds=0., native_permutation_copied_bytes=0,
+                materialized_bytes=0, materialized_copied_bytes=0)
+            self.diagnostics_['preparation_seconds'] += session_seconds
+        else:
+            self.diagnostics_['storage_mode'] = 'materialized'
+        if self.verbose >= 2:
+            self.diagnostics_['rounds'] = []
         decision = np.zeros(p, dtype=int)
         hits = np.zeros(p, dtype=int)
         history, thresholds = [], []
         previous, unchanged = None, 0
         permutations = None
         augmented = None
-        row_indices = np.arange(len(X), dtype=permutation_dtype)
-        self.diagnostics_['permutation_bytes'] = row_indices.nbytes
+        session_shuffle = session is not None and type(rng) is np.random.RandomState and permutation_dtype == np.uint32
+        row_indices = None if session_shuffle else np.arange(len(X), dtype=permutation_dtype)
+        self.diagnostics_['permutation_bytes'] = 0 if row_indices is None else row_indices.nbytes
         encoded = encoded.astype(np.int64, copy=False)
         self.n_iter_ = 0
         self.stop_reason_ = "max_iter"
         rounds = range(1, self.max_iter_ + 1) if self.greedy else range(1, self.max_iter_)
         for iteration in rounds:
+            round_started = perf_counter()
             if not self.greedy and not np.any(decision == 0):
                 self.stop_reason_ = "decided"
                 break
@@ -169,14 +189,23 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             while len(sources) < 5:
                 sources = np.tile(sources, 2)
             prep_started = perf_counter()
-            if permutations is None or permutations.shape != (len(sources), len(X)):
-                permutations = np.empty((len(sources), len(X)), dtype=permutation_dtype)
-                self.diagnostics_['permutation_bytes'] = max(
-                    self.diagnostics_['permutation_bytes'], permutations.nbytes + row_indices.nbytes)
-            for permutation in permutations:
-                permutation[:] = row_indices
-                _shuffle_permutation(rng, permutation)
-            self.diagnostics_['preparation_seconds'] += perf_counter() - prep_started
+            if session_shuffle:
+                state = rng.get_state(legacy=False)
+                words, position = session.shuffle_uint32(state['state']['key'], state['state']['pos'], len(sources))
+                state['state']['key'] = words
+                state['state']['pos'] = position
+                rng.set_state(state)
+            else:
+                if permutations is None or permutations.shape != (len(sources), len(X)):
+                    permutations = np.empty((len(sources), len(X)), dtype=permutation_dtype)
+                    self.diagnostics_['permutation_bytes'] = max(
+                        self.diagnostics_['permutation_bytes'], permutations.nbytes + row_indices.nbytes)
+                for permutation in permutations:
+                    permutation[:] = row_indices
+                    _shuffle_permutation(rng, permutation)
+            shuffle_seconds = perf_counter() - prep_started
+            self.diagnostics_['preparation_seconds'] += shuffle_seconds
+            self.diagnostics_['shuffle_seconds'] = self.diagnostics_.get('shuffle_seconds', 0.) + shuffle_seconds
             seed = int(rng.randint(np.iinfo(np.int32).max))
             # A warm-start forest must not retain trees trained on old shadows.
             if params.get('warm_start', False):
@@ -196,8 +225,10 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             if native:
                 from . import _boruta_core
                 settings = self._native_settings_
-                scores, prep, train = _boruta_core.gain_importances(
-                    X, encoded, active.astype(np.int64), sources.astype(np.int64), permutations,
+                gain = _boruta_core.gain_importances if session is None else session.gain_importances
+                arrays = (X, encoded) if session is None else ()
+                result = gain(
+                    *arrays, active.astype(np.int64), sources.astype(np.int64), permutations,
                     int(self.estimator_.n_estimators), int(params['max_depth'] or 512),
                     int(check_random_state(seed).randint(np.iinfo(np.int32).max)),
                     settings['bins'], int(params['extra_seed']), settings['threads'],
@@ -206,9 +237,20 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                     settings['min_leaf_weight'], settings['min_impurity_decrease'], settings['max_leaves'],
                     settings['bootstrap'], settings['sample_size'], settings['binning_strategy'],
                     settings['bin_sample_size'], settings['binning_seed'])
+                scores, prep, train = result[:3]
+                if session is not None:
+                    for name, value in result[3].items():
+                        if name.endswith('_seconds') or name == 'native_permutation_copied_bytes':
+                            self.diagnostics_[name] = self.diagnostics_.get(name, 0) + value
+                        else:
+                            self.diagnostics_[name] = max(self.diagnostics_.get(name, 0), value)
+                else:
+                    live_bytes = len(X) * (len(active) + len(sources)) * (1 if settings['bins'] is not None else 4)
+                    self.diagnostics_['materialized_bytes'] = max(self.diagnostics_.get('materialized_bytes', 0), live_bytes)
+                    self.diagnostics_['materialized_copied_bytes'] = self.diagnostics_.get('materialized_copied_bytes', 0) + live_bytes
                 self.diagnostics_['preparation_seconds'] += prep
                 self.diagnostics_['training_seconds'] += train
-                self.diagnostics_['training_storage_rebuilds'] += 1
+                self.diagnostics_['training_storage_rebuilds'] += int(session is None)
             else:
                 prep = perf_counter()
                 shape = (len(X), len(active) + len(sources))
@@ -252,6 +294,10 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                 decision[tested[accept & undecided]] = 1
                 decision[tested[reject & undecided]] = -1
             self.n_iter_ = iteration
+            if self.verbose >= 2:
+                self.diagnostics_['rounds'].append(dict(iteration=iteration,
+                    active_width=len(active), seed=seed, duration_seconds=perf_counter()-round_started,
+                    hits=hits.tolist(), decisions=decision.tolist(), stop_reason=None))
             if self.verbose:
                 print(f"Iteration {iteration}/{self.max_iter_}: {(decision == 1).sum()} confirmed")
             if not self.greedy and self.early_stopping:
@@ -284,6 +330,8 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         if self.store_history:
             self.importance_history_ = np.vstack((np.zeros(p), values))
             self.shadow_threshold_history_ = np.asarray(thresholds)
+        if self.verbose >= 2 and self.diagnostics_['rounds']:
+            self.diagnostics_['rounds'][-1]['stop_reason'] = self.stop_reason_
         self.diagnostics_['fit_seconds'] = perf_counter() - started
         return self
 

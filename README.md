@@ -1,5 +1,10 @@
 # 🔥 Bankai Boruta
 
+The unreleased a7 candidate adds an opt-in [exact training session](docs/exact-session.md).
+The materialized path remains the default until AMD runtime/RSS acceptance passes.
+See [validation status](docs/exact-session-validation.md) and [changes](CHANGELOG.md).
+
+
 [![PyPI Latest Release](https://img.shields.io/pypi/v/bankai-boruta.svg)](https://pypi.org/project/bankai-boruta/)
 [![Package Status](https://img.shields.io/pypi/status/bankai-boruta.svg)](https://pypi.org/project/bankai-boruta/)
 [![Python versions](https://img.shields.io/pypi/pyversions/bankai-boruta.svg)](https://pypi.org/project/bankai-boruta/)
@@ -184,7 +189,7 @@ selector.fit(X_train.astype("float32"), y_train)
 assert selector.diagnostics_["path"] == "rust"
 ```
 
-Worker and feature controls use the pinned a15 forest's validation and resolution rules:
+Worker and feature controls use the pinned forest's validation and resolution rules:
 `n_jobs=None` means one worker, positive values specify the worker count, and
 negative values resolve relative to the CPU count. `max_features` accepts
 `"sqrt"`, `"log2"`, a positive integer, a fraction in `(0, 1]`, or `None`.
@@ -202,12 +207,14 @@ not represented by this native boundary (including sample/class weights,
 `warm_start`, OOB scoring, and monotonic constraints) use the Python adapter.
 To benchmark the materialized Python adapter with the same forest, set
 `importance_getter="feature_importances_"` and assert
-`selector.diagnostics_["path"] == "python"`. Native virtual shadows avoid the
-augmented dense matrix. Since a5, native float32 and float64 arrays retain
-their dtype; other inputs and all adapter inputs use float64. Each value is
-promoted to f64 only when read by Rust. Permutations and their reusable row
-index buffer use uint32 for up to 2**32 rows, otherwise int64 within platform
-addressing limits. Bins remain materialized and training is unchanged.
+`selector.diagnostics_["path"] == "python"`. Native shadow access avoids the
+Python augmented matrix; the default exact forest still materializes a float32
+real-plus-shadow matrix each round. The opt-in [a7 session](docs/exact-session.md)
+removes that internal matrix. Native exact fits retain float32; public float64
+exact fits preserve the float64 adapter. Native binned inputs retain float32 or
+float64. Other inputs and adapter inputs use float64. Explicit permutations use
+uint32 through 2**32 rows, otherwise int64 within platform addressing limits.
+Binning and training statistics remain unchanged.
 
 `fit(X, y, sample_weight=None)` accepts non-negative sample weights with positive
 total weight. Classic selection counts hits and uses binomial tests; its final
@@ -239,7 +246,7 @@ The backend combines several sources of computational efficiency:
 | [Greedy Boruta](https://github.com/Nicolas-Vana/GreedyBorutaPy) | Optional fixed-round selection confirms a feature after its first hit, replacing repeated binomial confirmation tests with a bounded campaign. |
 | [Extra Trees](https://doi.org/10.1007/s10994-006-6226-1) | Random cut points reduce exhaustive threshold search in the forest. BankaiRF's default here combines Extra Trees with bootstrap sampling and per-tree gain normalization. |
 | [LightGBM histogram methods](https://lightgbm.readthedocs.io/en/stable/Features.html#optimization-in-speed-and-memory-usage) | Discretization replaces continuous values with compact bins and supports per-bin statistics. BankaiRF a15's binned Extra Trees stores bins by column and uses a single statistics pass for binary splits; this is its own forest backend. |
-| [BankaiRF a15 Rust engine](https://github.com/breno-jesus-fernandes/bankai-random-forest/tree/caa46c22ef93434cd87319490513e877d4378564) | Parallel trees and virtual shadow access avoid constructing an expanded floating-point input matrix on the validated native path. Rounds remain sequential. |
+| [BankaiRF a15 Rust engine](https://github.com/breno-jesus-fernandes/bankai-random-forest/tree/caa46c22ef93434cd87319490513e877d4378564) | Parallel trees train from virtual access at the Boruta boundary. The default exact engine still materializes internal float32 columns; the opt-in a7 session avoids that matrix. Rounds remain sequential. |
 
 The scientific papers and author article are linked under [References](#references).
 The LightGBM reference describes binning and histogram principles; the a15
@@ -250,14 +257,15 @@ than the global histogram caches of BankaiRF's ordinary Random Forest path.
 Rust execution is selected automatically for supported exact or binned Extra
 Trees gain configurations. Supported forest settings are forwarded into the
 native fit; unsupported settings, weights, monotonic constraints and custom
-getters use the Python adapter, preserving estimator parameters and a15
+getters use the Python adapter, preserving estimator parameters and forest
 validation. Shadow monotonic constraints are always zero. `diagnostics_`
 records the path and its reason.
 
-Both Python and Rust dependencies are aligned to BankaiRF **0.1.0a15**; the Rust
-revision is `caa46c22ef93434cd87319490513e877d4378564`. Training storage is rebuilt
-each round as required by a15. Immutable inputs and permutation buffers are
-reused within a fit; training caches are not shared across independent fits.
+The a7 candidate aligns Python and Rust dependencies to BankaiRF **0.1.0a16**;
+the immutable Rust/development Python revision is
+`da52a5bc0e2358911131d3b06d9cea65fc360505`. RF a16 must be published first.
+Default storage is rebuilt each round. The opt-in session shares one real bank
+and caches its primary order within a fit. Independent fits never share sessions.
 `diagnostics_` also reports `input_dtype` (received dtype),
 `native_input_dtype` (validated dtype on the native path, otherwise `None`),
 `input_conversion_bytes` (size of the converted input buffer, zero for a shared
@@ -271,8 +279,10 @@ bytes versus a4: approximately 572.6 MiB. RSS and timings require measurement.
 Only local results are covered by the [a5 report](docs/validation-a5-local.md);
 the four-profile Linux campaign remains pending.
 
-Copy metrics cover augmented float-matrix writes, while a15's internal bin and
-cache allocations remain part of preparation/training time and measured RSS.
+`copied_bytes=0` covers only Python augmented-matrix writes. Internal exact
+materializations, bin/layout buffers and caches remain part of preparation and
+measured RSS. The [new diagnostics](docs/exact-session.md#diagnostics) distinguish
+live buffer capacity from cumulative copy volume; none is a total RSS estimate.
 
 See the [reproducible validation report](docs/validation.md) for Rust/adapter
 importance parity, reference-algorithm comparisons, timing, peak memory, recall
@@ -323,7 +333,7 @@ tools on macOS or the Rust MSVC build tools on Windows.
 ```bash
 git clone https://github.com/breno-jesus-fernandes/bankai-boruta.git
 cd bankai-boruta
-git switch feature/greedy-bankai-a15
+git switch perf/exact-session-a7
 uv python install 3.11
 uv sync --locked --no-install-project --extra test
 uv run --no-sync maturin develop --release --locked
