@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "bankai-boruta"
-version = "0.1.0a4"
+version = "0.1.0a5"
 description = "Native Rust Boruta feature selection for Python."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -28,6 +28,14 @@ manifest-path = "crates/python/Cargo.toml"
 python-source = "python"
 module-name = "bankai_boruta._boruta_core"
 bindings = "pyo3"
+include = [
+    { path = "tests/**/*.py", format = "sdist" },
+    { path = "scripts/*.py", format = "sdist" },
+    { path = "docs/**/*.md", format = "sdist" },
+    { path = "benchmarks/compare_a5.py", format = "sdist" },
+    { path = "benchmarks/results/a5-*.json", format = "sdist" },
+    { path = "uv.lock", format = "sdist" },
+]
 
 [tool.pytest.ini_options]
 addopts = "-ra"

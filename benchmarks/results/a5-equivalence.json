@@ -1,0 +1,43 @@
+{
+  "status": "passed",
+  "compared_arrays": 1400,
+  "fits_per_version": 200,
+  "environments": [
+    {
+      "platform": "macOS-26.6.2-arm64-arm-64bit",
+      "machine": "arm64",
+      "processor": "arm",
+      "python": "3.11.11 (main, Jan 14 2025, 23:36:41) [Clang 19.1.6 ]",
+      "cpu_count": 8,
+      "physical_memory_bytes": 8589934592,
+      "versions": {
+        "bankai-boruta": "0.1.0a4",
+        "bankai-random-forest": "0.1.0a15",
+        "numpy": "2.4.6",
+        "scipy": "1.17.1",
+        "scikit-learn": "1.9.1",
+        "Boruta": "0.4.3",
+        "psutil": "7.2.2"
+      }
+    },
+    {
+      "platform": "macOS-26.6.2-arm64-arm-64bit",
+      "machine": "arm64",
+      "processor": "arm",
+      "python": "3.11.11 (main, Jan 14 2025, 23:36:41) [Clang 19.1.6 ]",
+      "cpu_count": 8,
+      "physical_memory_bytes": 8589934592,
+      "versions": {
+        "bankai-boruta": "0.1.0a5",
+        "bankai-random-forest": "0.1.0a15",
+        "numpy": "2.4.6",
+        "scipy": "1.17.1",
+        "scikit-learn": "1.9.1",
+        "Boruta": "0.4.3",
+        "psutil": "7.2.2"
+      }
+    }
+  ],
+  "rtol": 0,
+  "atol": 1e-14
+}

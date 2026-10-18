@@ -1,0 +1,91 @@
+{
+  "date_utc": "2026-10-18",
+  "base_tag": "v0.1.0a4",
+  "baseline_python_tests": 120,
+  "candidate_python_tests": 252,
+  "rust_tests": 2,
+  "clippy": "passed: --workspace --all-targets -- -D warnings",
+  "isolated_equivalence": {
+    "status": "passed",
+    "compared_arrays": 1400,
+    "fits_per_version": 200,
+    "environments": [
+      {
+        "platform": "macOS-26.6.2-arm64-arm-64bit",
+        "machine": "arm64",
+        "processor": "arm",
+        "python": "3.11.11 (main, Jan 14 2025, 23:36:41) [Clang 19.1.6 ]",
+        "cpu_count": 8,
+        "physical_memory_bytes": 8589934592,
+        "versions": {
+          "bankai-boruta": "0.1.0a4",
+          "bankai-random-forest": "0.1.0a15",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "scikit-learn": "1.9.1",
+          "Boruta": "0.4.3",
+          "psutil": "7.2.2"
+        }
+      },
+      {
+        "platform": "macOS-26.6.2-arm64-arm-64bit",
+        "machine": "arm64",
+        "processor": "arm",
+        "python": "3.11.11 (main, Jan 14 2025, 23:36:41) [Clang 19.1.6 ]",
+        "cpu_count": 8,
+        "physical_memory_bytes": 8589934592,
+        "versions": {
+          "bankai-boruta": "0.1.0a5",
+          "bankai-random-forest": "0.1.0a15",
+          "numpy": "2.4.6",
+          "scipy": "1.17.1",
+          "scikit-learn": "1.9.1",
+          "Boruta": "0.4.3",
+          "psutil": "7.2.2"
+        }
+      }
+    ],
+    "rtol": 0,
+    "atol": 1e-14
+  },
+  "installed_wheel_smoke": "passed float32 and float64, executed outside repository",
+  "benchmark_fits": 84,
+  "benchmark_gates": [
+    {
+      "dtype": "float32",
+      "threads": 1,
+      "time_ratio": 0.951936061856319,
+      "incremental_rss_reduction": 0.583428990498055,
+      "time_pass": true,
+      "memory_pass": true
+    },
+    {
+      "dtype": "float32",
+      "threads": 8,
+      "time_ratio": 0.9387146018699749,
+      "incremental_rss_reduction": 0.559498861047836,
+      "time_pass": true,
+      "memory_pass": true
+    },
+    {
+      "dtype": "float64",
+      "threads": 1,
+      "time_ratio": 0.9699722552665078,
+      "incremental_rss_reduction": 0.3210085345545379,
+      "time_pass": true,
+      "memory_pass": null
+    },
+    {
+      "dtype": "float64",
+      "threads": 8,
+      "time_ratio": 0.9291855659118003,
+      "incremental_rss_reduction": 0.29692289127549176,
+      "time_pass": true,
+      "memory_pass": null
+    }
+  ],
+  "paired_benchmark_selection_and_rounds": "passed",
+  "explicit_buffer_diagnostics": "passed",
+  "float32_float64_dataset_equivalence": "passed",
+  "published": false
+}

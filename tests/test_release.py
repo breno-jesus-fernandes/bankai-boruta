@@ -10,7 +10,7 @@ import pytest
 from scripts.release_artifacts import SBOMS, project_release, verify_artifacts
 from scripts.publish_github_release import ensure_release
 
-VERSION = '0.1.0a4'
+VERSION = '0.1.0a5'
 PIN = 'bankai-random-forest==0.1.0a15'
 
 
@@ -65,7 +65,7 @@ def test_incomplete_or_mismatched_release_is_rejected(artifacts, corruption):
 
 def test_version_alignment(tmp_path):
     (tmp_path / 'pyproject.toml').write_text(f'[project]\nversion="{VERSION}"\ndependencies=["{PIN}"]\n')
-    (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.4"\n')
+    (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.5"\n')
     assert project_release(tmp_path) == (VERSION, PIN)
     (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.2"\n')
     with pytest.raises(ValueError, match='versions differ'):
@@ -89,7 +89,7 @@ class FakeGitHub:
         if path.endswith('/releases'):
             self.creates += 1
             assert data['draft'] is True
-            self.release = dict(data, id=1, assets=[], upload_url='https://uploads.github.com/test{?name,label}', html_url='https://github.com/test/releases/v0.1.0a4')
+            self.release = dict(data, id=1, assets=[], upload_url='https://uploads.github.com/test{?name,label}', html_url='https://github.com/test/releases/v0.1.0a5')
             return copy.deepcopy(self.release)
         from urllib.parse import parse_qs, urlparse
         name = parse_qs(urlparse(path).query)['name'][0]

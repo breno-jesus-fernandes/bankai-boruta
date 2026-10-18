@@ -1,0 +1,38 @@
+{
+  "version": "0.1.0a5",
+  "created_utc": "2026-10-18T16:31:12.597805+00:00",
+  "branch": "feature/a5-memory",
+  "base_tag": "v0.1.0a4",
+  "base_commit": "b3f8ee667b9af5c826d708dd3666b25cbf9d2527",
+  "scope": "local macOS arm64 wheel and source distribution; not published",
+  "files": [
+    {
+      "path": "dist/bankai_boruta-0.1.0a5-cp311-abi3-macosx_11_0_arm64.whl",
+      "bytes": 420283,
+      "sha256": "9d08fa1aa548120bc106a809f8fff940fb9e26f7f0b6c2bc391f34efd757bee9"
+    },
+    {
+      "path": "dist/bankai_boruta-0.1.0a5.tar.gz",
+      "bytes": 192948,
+      "sha256": "8579eb041080f03debbfd53609f1a1168f6ba97565ebf38351c5034de0f99e1b"
+    }
+  ],
+  "source_sha256": {
+    "Cargo.toml": "0d403a3e372216367ab887c4886c6e2b4e6e1d420239dbebf187c22c498d2237",
+    "Cargo.lock": "ac89b7d6ffa8c0ddeb7e07070702d0a925ebe82d411a8e2a289c6fe37cfb0aad",
+    "pyproject.toml": "b0d8d4d1032103e3430b60996f115b43f21405c6f41e44a5596bda79a31aa2a2",
+    "uv.lock": "1f9b5c2b2f50809064f293938ccd70355ed617282eebe811ed0d47918ceb112f",
+    "python/bankai_boruta/__init__.py": "ddc06a4ab3226ed102e6aafe8653d0b2160babb770fed38583776d3b1f50518f",
+    "python/bankai_boruta/_estimator.py": "2842eaea03ec921ef1e31ad58834692eefc5deff060fdb4154a1fc74b5f0eeab",
+    "crates/python/src/lib.rs": "62b68e34f51dcbb90d3d2c881ac4f1b6a1260cc04e6a8bcb7cbd2918969c1ce7",
+    "crates/boruta-core/src/lib.rs": "7eea50d8bff57cbfdfd759461f0dc4157bc5b4ec3018d76f1125d5197c9ff42b",
+    "benchmarks/compare_a5.py": "7204bcc8c4d9c0dd452bb81b63528c2bb258436d7b1384c1f98e88763329fe71",
+    "tests/test_memory.py": "e923b08572c0fc485e66c98618bbf25ac28b26b4998cb3e833406f198dd32c55"
+  },
+  "evidence_sha256": {
+    "docs/validation-a5-local.md": "89fb1a90313daa92d15ac54146c0c5c424e628b11a751d9727b6cfa8394205d8",
+    "benchmarks/results/a5-local.json": "5d24ff7bc18a7b6cf4e482ed9a2226840712b415108f4055cc352fc22c3536cf",
+    "benchmarks/results/a5-equivalence.json": "65651bf3a10f63bd71897079f7488da6a9e9898750644601bded46eb96ed1f90",
+    "benchmarks/results/a5-verification.json": "db4f7a38b9e29c694062d64cb5434bb81b0307afd0112099095656792206855a"
+  }
+}
