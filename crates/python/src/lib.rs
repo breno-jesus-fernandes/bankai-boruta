@@ -42,10 +42,22 @@ fn gain_typed<V: Value, I: Index>(
     trees: usize,
     depth: usize,
     seed: u64,
-    bins: usize,
+    bins: Option<usize>,
     extra_seed: u64,
     threads: usize,
     max_features: usize,
+    backend: &str,
+    criterion: &str,
+    min_samples_split: usize,
+    min_samples_leaf: usize,
+    min_leaf_weight: f64,
+    min_impurity_decrease: f64,
+    max_leaves: Option<usize>,
+    bootstrap: bool,
+    sample_size: Option<usize>,
+    binning_strategy: &str,
+    bin_sample_size: usize,
+    binning_seed: u64,
 ) -> PyResult<(Vec<f64>, f64, f64)> {
     let preparation_start = std::time::Instant::now();
     let x = x.as_array();
@@ -67,7 +79,8 @@ fn gain_typed<V: Value, I: Index>(
         || max_features > active.len() + sources.len()
         || trees == 0
         || depth == 0
-        || !(2..=255).contains(&bins)
+        || bins.is_some_and(|value| !(2..=255).contains(&value))
+        || backend != if bins.is_some() { "binned" } else { "exact" }
         || active.is_empty()
         || sources.is_empty()
         || active
@@ -127,6 +140,17 @@ fn gain_typed<V: Value, I: Index>(
         extra_seed,
         threads,
         max_features,
+        criterion,
+        min_samples_split,
+        min_samples_leaf,
+        min_leaf_weight,
+        min_impurity_decrease,
+        max_leaves.unwrap_or(usize::MAX),
+        bootstrap,
+        sample_size,
+        binning_strategy,
+        bin_sample_size,
+        binning_seed,
         |row, col| value(order[row], col),
     )
     .map_err(PyValueError::new_err)?;
@@ -139,6 +163,7 @@ fn gain_typed<V: Value, I: Index>(
 
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (x, y, active, sources, permutations, trees, depth, seed, bins, extra_seed, threads, max_features, backend="binned", criterion="gini", min_samples_split=2, min_samples_leaf=1, min_leaf_weight=0.0, min_impurity_decrease=0.0, max_leaves=None, bootstrap=true, sample_size=None, binning_strategy="exact_sort", bin_sample_size=200000, binning_seed=6))]
 fn gain_importances(
     x: &Bound<'_, PyAny>,
     y: PyReadonlyArray1<'_, i64>,
@@ -148,10 +173,22 @@ fn gain_importances(
     trees: usize,
     depth: usize,
     seed: u64,
-    bins: usize,
+    bins: Option<usize>,
     extra_seed: u64,
     threads: usize,
     max_features: usize,
+    backend: &str,
+    criterion: &str,
+    min_samples_split: usize,
+    min_samples_leaf: usize,
+    min_leaf_weight: f64,
+    min_impurity_decrease: f64,
+    max_leaves: Option<usize>,
+    bootstrap: bool,
+    sample_size: Option<usize>,
+    binning_strategy: &str,
+    bin_sample_size: usize,
+    binning_seed: u64,
 ) -> PyResult<(Vec<f64>, f64, f64)> {
     macro_rules! dispatch {
         ($values:ty, $indices:ty) => {
@@ -172,6 +209,18 @@ fn gain_importances(
                     extra_seed,
                     threads,
                     max_features,
+                    backend,
+                    criterion,
+                    min_samples_split,
+                    min_samples_leaf,
+                    min_leaf_weight,
+                    min_impurity_decrease,
+                    max_leaves,
+                    bootstrap,
+                    sample_size,
+                    binning_strategy,
+                    bin_sample_size,
+                    binning_seed,
                 );
             }
         };

@@ -18,8 +18,10 @@ BankaiBoruta is a fast, scalable feature selection library built for large datas
 It combines the Boruta all-relevant selection algorithm with the native Rust
 backend of [Bankai Random Forest](https://github.com/breno-jesus-fernandes/bankai-random-forest).
 Classic Boruta is the default; `greedy=True` enables the fixed-round Greedy Boruta
-variant. BankaiRF supplies binned Extra Trees, gain importance and parallel tree
-training through a scikit-learn-compatible selector for classification.
+variant. BankaiRF supplies exact or binned Extra Trees, gain importance and
+parallel tree training through a scikit-learn-compatible selector. In
+0.1.0a6, the Rust selector forwards supported forest parameters from the
+caller.
 
 ⚠️ Bankai Boruta is in Alpha. Its API and fitted objects may change.
 
@@ -160,25 +162,29 @@ selector.set_params(estimator__max_depth=7)
 selector.fit(X_train, y_train)
 ```
 
-### Native forest controls for benchmarks
+### Native forest controls
 
-The validated binned Extra Trees gain configuration honors the supplied
-`BankaiRandomForestClassifier.n_jobs` and `max_features` on the native path.
-For example, this configuration keeps virtual shadows with four workers and
-fractional feature sampling:
+The native selector forwards the supplied `BankaiRandomForestClassifier`
+settings for the supported native subset. Both exact and binned Extra Trees
+are available. Exact native selection currently requires float32 input; exact
+float64 input uses the adapter so BankaiRF can preserve its float64 semantics.
+This example runs the exact backend with custom bootstrap sampling, criterion,
+and tree constraints:
 
 ```python
 forest = BankaiRandomForestClassifier(
-    n_estimators=150, max_depth=8, max_bins=63,
-    extra_trees=True, extra_trees_backend="binned", importance_type="gain",
+    n_estimators=150, max_depth=8, max_bins=None,
+    extra_trees=True, extra_trees_backend="exact", importance_type="gain",
+    criterion="entropy", min_samples_split=4, min_samples_leaf=2,
+    max_leaf_nodes=128, max_samples=0.8, bootstrap=True,
     n_jobs=4, max_features=0.15,
 )
 selector = BankaiBoruta(forest, n_estimators=150, random_state=42)
-selector.fit(X_train, y_train)
+selector.fit(X_train.astype("float32"), y_train)
 assert selector.diagnostics_["path"] == "rust"
 ```
 
-Both controls use the pinned a15 forest's validation and resolution rules:
+Worker and feature controls use the pinned a15 forest's validation and resolution rules:
 `n_jobs=None` means one worker, positive values specify the worker count, and
 negative values resolve relative to the CPU count. `max_features` accepts
 `"sqrt"`, `"log2"`, a positive integer, a fraction in `(0, 1]`, or `None`.
@@ -188,8 +194,13 @@ with a minimum of one. Integer counts must fit that round's width. The resolved
 worker count controls native preparation and forest training; tree parallelism
 is capped by the number of trees.
 
-Other forest settings must still meet native eligibility. To benchmark the
-materialized Python adapter with the same forest, set
+The Rust path also forwards `criterion`, `min_samples_split`,
+`min_samples_leaf`, `min_weight_fraction_leaf`, `min_impurity_decrease`,
+`max_leaf_nodes`, `bootstrap`, `max_samples`, and the binned backend's
+`binning_strategy`, `bin_sample_size`, and `binning_seed`. Parameters that are
+not represented by this native boundary (including sample/class weights,
+`warm_start`, OOB scoring, and monotonic constraints) use the Python adapter.
+To benchmark the materialized Python adapter with the same forest, set
 `importance_getter="feature_importances_"` and assert
 `selector.diagnostics_["path"] == "python"`. Native virtual shadows avoid the
 augmented dense matrix. Since a5, native float32 and float64 arrays retain
@@ -236,12 +247,12 @@ implementation determines the actual forest storage and split behavior.
 The default binned Extra Trees path uses its own column-bin statistics rather
 than the global histogram caches of BankaiRF's ordinary Random Forest path.
 
-Rust execution is selected automatically for the validated default binned Extra
-Trees gain configuration, with supported changes to tree count, random seed,
-depth, bins (2–255), and Extra Trees seed. Other settings, weights, monotonic
-constraints and custom getters use the Python adapter, preserving estimator
-parameters and a15 validation. Shadow monotonic constraints are always zero.
-`diagnostics_` records the path and its reason.
+Rust execution is selected automatically for supported exact or binned Extra
+Trees gain configurations. Supported forest settings are forwarded into the
+native fit; unsupported settings, weights, monotonic constraints and custom
+getters use the Python adapter, preserving estimator parameters and a15
+validation. Shadow monotonic constraints are always zero. `diagnostics_`
+records the path and its reason.
 
 Both Python and Rust dependencies are aligned to BankaiRF **0.1.0a15**; the Rust
 revision is `caa46c22ef93434cd87319490513e877d4378564`. Training storage is rebuilt
