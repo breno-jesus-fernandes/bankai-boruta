@@ -192,7 +192,11 @@ Other forest settings must still meet native eligibility. To benchmark the
 materialized Python adapter with the same forest, set
 `importance_getter="feature_importances_"` and assert
 `selector.diagnostics_["path"] == "python"`. Native virtual shadows avoid the
-augmented dense matrix; input conversion to float64 can still allocate.
+augmented dense matrix. Since a5, native float32 and float64 arrays retain
+their dtype; other inputs and all adapter inputs use float64. Each value is
+promoted to f64 only when read by Rust. Permutations and their reusable row
+index buffer use uint32 for up to 2**32 rows, otherwise int64 within platform
+addressing limits. Bins remain materialized and training is unchanged.
 
 `fit(X, y, sample_weight=None)` accepts non-negative sample weights with positive
 total weight. Classic selection counts hits and uses binomial tests; its final
@@ -243,6 +247,19 @@ Both Python and Rust dependencies are aligned to BankaiRF **0.1.0a15**; the Rust
 revision is `caa46c22ef93434cd87319490513e877d4378564`. Training storage is rebuilt
 each round as required by a15. Immutable inputs and permutation buffers are
 reused within a fit; training caches are not shared across independent fits.
+`diagnostics_` also reports `input_dtype` (received dtype),
+`native_input_dtype` (validated dtype on the native path, otherwise `None`),
+`input_conversion_bytes` (size of the converted input buffer, zero for a shared
+NumPy input), `permutation_dtype`, and `permutation_bytes` (largest per-round
+size of permutations plus the reusable row-index buffer during the fit).
+These are explicit buffer sizes, not RSS or total allocations. The existing
+`copied_bytes` remains cumulative augmented float-matrix writes across rounds;
+it excludes input conversions and permutations. For a 100,000 × 500 float32
+array, a5 removes 400,000,000 input-conversion bytes and 200,400,000 permutation
+bytes versus a4: approximately 572.6 MiB. RSS and timings require measurement.
+Only local results are covered by the [a5 report](docs/validation-a5-local.md);
+the four-profile Linux campaign remains pending.
+
 Copy metrics cover augmented float-matrix writes, while a15's internal bin and
 cache allocations remain part of preparation/training time and measured RSS.
 

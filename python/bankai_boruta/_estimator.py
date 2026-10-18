@@ -14,6 +14,29 @@ from sklearn.utils.multiclass import check_classification_targets
 from sklearn.utils.validation import check_is_fitted, validate_data, _check_sample_weight
 
 
+def _permutation_dtype(rows):
+    if rows < 0 or rows > np.iinfo(np.intp).max:
+        raise ValueError("row count exceeds platform addressing limits")
+    return np.dtype(np.uint32 if rows <= 2**32 else np.int64)
+
+
+def _shuffle_permutation(rng, permutation):
+    # Keep arbitrary RandomState subclasses and alternative bit generators on
+    # NumPy's own path. For standard MT19937, only specialize the swap width;
+    # state, rejection draws, Gaussian cache and shuffle/seed order stay intact.
+    if type(rng) is np.random.RandomState and permutation.dtype == np.uint32:
+        state = rng.get_state(legacy=False)
+        if state['bit_generator'] == 'MT19937':
+            from . import _boruta_core
+            words, position = _boruta_core.shuffle_uint32(
+                permutation, state['state']['key'], state['state']['pos'])
+            state['state']['key'] = words
+            state['state']['pos'] = position
+            rng.set_state(state)
+            return
+    rng.shuffle(permutation)
+
+
 def _greedy_rounds(features, alpha, bonferroni):
     # Exact ceiling of log2(p / alpha), including boundaries and subnormals.
     numerator, denominator = float(alpha).as_integer_ratio()
@@ -85,7 +108,9 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                 delattr(self, name)
         self._validate_parameters()
         conversion_started = perf_counter()
-        X, y = validate_data(self, X, y, dtype=np.float64)
+        input_dtype = str(X.dtype) if hasattr(X, "dtype") else str(np.asarray(X).dtype)
+        original_X = X
+        X, y = validate_data(self, X, y, dtype=[np.float64, np.float32])
         conversion_seconds = perf_counter() - conversion_started
         check_classification_targets(y)
         classes, encoded = np.unique(y, return_inverse=True)
@@ -110,17 +135,27 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         self.max_iter_ = _greedy_rounds(p, self.alpha, self.bonferroni) if self.greedy else self.max_iter
         # Native eligibility is deliberately conservative and checked against a15.
         native, reason = self._native_eligibility(base, params, weights)
+        if not native and X.dtype != np.float64:
+            convert_started = perf_counter()
+            X = X.astype(np.float64)
+            conversion_seconds += perf_counter() - convert_started
+        conversion_bytes = 0 if isinstance(original_X, np.ndarray) and np.shares_memory(X, original_X) else X.nbytes
+        permutation_dtype = _permutation_dtype(len(X))
         self.diagnostics_ = dict(path="rust" if native else "python", reason=reason,
             preparation_seconds=0., training_seconds=0., copied_bytes=0,
             copy_seconds=0., input_conversion_seconds=conversion_seconds,
-            training_storage_rebuilds=0)
+            training_storage_rebuilds=0, input_dtype=input_dtype,
+            native_input_dtype=str(X.dtype) if native else None,
+            input_conversion_bytes=conversion_bytes,
+            permutation_dtype=permutation_dtype.name, permutation_bytes=0)
         decision = np.zeros(p, dtype=int)
         hits = np.zeros(p, dtype=int)
         history, thresholds = [], []
         previous, unchanged = None, 0
         permutations = None
         augmented = None
-        row_indices = np.arange(len(X), dtype=np.int64)
+        row_indices = np.arange(len(X), dtype=permutation_dtype)
+        self.diagnostics_['permutation_bytes'] = row_indices.nbytes
         encoded = encoded.astype(np.int64, copy=False)
         self.n_iter_ = 0
         self.stop_reason_ = "max_iter"
@@ -135,10 +170,12 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                 sources = np.tile(sources, 2)
             prep_started = perf_counter()
             if permutations is None or permutations.shape != (len(sources), len(X)):
-                permutations = np.empty((len(sources), len(X)), dtype=np.int64)
+                permutations = np.empty((len(sources), len(X)), dtype=permutation_dtype)
+                self.diagnostics_['permutation_bytes'] = max(
+                    self.diagnostics_['permutation_bytes'], permutations.nbytes + row_indices.nbytes)
             for permutation in permutations:
                 permutation[:] = row_indices
-                rng.shuffle(permutation)
+                _shuffle_permutation(rng, permutation)
             self.diagnostics_['preparation_seconds'] += perf_counter() - prep_started
             seed = int(rng.randint(np.iinfo(np.int32).max))
             # A warm-start forest must not retain trees trained on old shadows.
