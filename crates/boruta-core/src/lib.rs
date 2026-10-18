@@ -1,6 +1,7 @@
 //! BankaiRF a15 training with virtual shadow access and per-tree gain normalization.
 #![forbid(unsafe_code)]
 use bankai_random_forest::dense::{BinningStrategy, Criterion, DenseInput};
+pub use bankai_random_forest::dense::{ExactColumnBank, ExactRowIndices, ExactVirtualColumns};
 use std::time::Instant;
 use xrf::Forest;
 
@@ -8,6 +9,7 @@ pub struct GainResult {
     pub importances: Vec<f64>,
     pub preparation_seconds: f64,
     pub training_seconds: f64,
+    pub feature_workspace_peak_bytes_per_worker: f64,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -34,6 +36,59 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
     bin_sample_size: usize,
     binning_seed: u64,
     value: F,
+) -> Result<GainResult, String> {
+    gain_importances_with_storage(
+        rows,
+        columns,
+        labels,
+        trees,
+        depth,
+        seed,
+        bins,
+        extra_seed,
+        threads,
+        max_features,
+        criterion,
+        min_samples_split,
+        min_samples_leaf,
+        min_leaf_weight,
+        min_impurity_decrease,
+        max_leaves,
+        bootstrap,
+        sample_size,
+        binning_strategy,
+        bin_sample_size,
+        binning_seed,
+        value,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn gain_importances_with_storage<F: Fn(usize, usize) -> f64 + Sync>(
+    rows: usize,
+    columns: usize,
+    labels: Vec<usize>,
+    trees: usize,
+    depth: usize,
+    seed: u64,
+    bins: Option<usize>,
+    extra_seed: u64,
+    threads: usize,
+    max_features: usize,
+    criterion: &str,
+    min_samples_split: usize,
+    min_samples_leaf: usize,
+    min_leaf_weight: f64,
+    min_impurity_decrease: f64,
+    max_leaves: usize,
+    bootstrap: bool,
+    sample_size: Option<usize>,
+    binning_strategy: &str,
+    bin_sample_size: usize,
+    binning_seed: u64,
+    value: F,
+    virtual_storage: Option<ExactVirtualColumns>,
 ) -> Result<GainResult, String> {
     let start = Instant::now();
     if rows == 0
@@ -67,6 +122,9 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
         _ => return Err("criterion must be 'gini', 'entropy', or 'log_loss'".into()),
     };
     let binning_strategy = BinningStrategy::parse(binning_strategy)?;
+    let profile = virtual_storage
+        .as_ref()
+        .map(|_| std::sync::Arc::new(bankai_random_forest::dense::FitProfile::default()));
     let input = if let Some(bins) = bins {
         DenseInput::training_binned_with_accessor_and_seed(
             rows,
@@ -90,6 +148,19 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
         .with_float32_column_storage(threads)
         .with_histogram_threads(1)
         .with_binned_extra_trees(threads)
+    } else if let Some(storage) = virtual_storage {
+        DenseInput::training_exact_virtual(
+            storage,
+            labels,
+            classes,
+            min_leaf_weight,
+            criterion,
+            min_samples_split,
+            min_samples_leaf,
+            min_impurity_decrease,
+        )?
+        .with_extra_trees(true, extra_seed)
+        .with_histogram_threads(1)
     } else {
         DenseInput::training_exact_f32_with_accessor(
             rows,
@@ -108,6 +179,7 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
         .with_extra_trees(true, extra_seed)
         .with_histogram_threads(1)
     };
+    let input = input.with_profiling(profile.clone());
     let preparation_seconds = start.elapsed().as_secs_f64();
     let start = Instant::now();
     let forest = Forest::new_parallel_with_settings(
@@ -150,6 +222,9 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
         importances: result,
         preparation_seconds,
         training_seconds: start.elapsed().as_secs_f64(),
+        feature_workspace_peak_bytes_per_worker: profile
+            .as_ref()
+            .map_or(0., |p| p.snapshot()["feature_buffer_peak_bytes_per_worker"]),
     })
 }
 
