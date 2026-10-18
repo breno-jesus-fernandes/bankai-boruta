@@ -72,3 +72,7 @@ GitHub repository settings must enforce the following for `main` (these settings
 - Allow an administrator bypass so the maintainer can merge their own pull request when needed.
 
 The check names follow the CI matrix and security jobs documented in [SECURITY.md](.github/SECURITY.md). Verify the active ruleset or branch protection on GitHub after configuring it.
+
+For changes to native exact training, run `pytest tests/test_exact_session.py`
+and the [sequential reference comparison](docs/exact-session.md). Keep frozen
+a6/a15 observations separate from the candidate and preserve the RNG state.
