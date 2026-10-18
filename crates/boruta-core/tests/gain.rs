@@ -9,10 +9,21 @@ fn gain_is_normalized_and_reproducible() {
             10,
             6,
             42,
-            16,
+            Some(16),
             6,
             threads,
             max_features,
+            "gini",
+            2,
+            1,
+            0.,
+            0.,
+            usize::MAX,
+            true,
+            None,
+            "exact_sort",
+            200000,
+            6,
             |row, col| {
                 if col == 0 {
                     row as f64

@@ -70,7 +70,7 @@ def test_resolved_controls_cross_native_boundary(monkeypatch, jobs, expected):
     original = _boruta_core.gain_importances
 
     def record(*args):
-        calls.append((args[-2], args[-1]))
+        calls.append((args[10], args[11]))
         return original(*args)
 
     monkeypatch.setattr(_boruta_core, 'gain_importances', record)
@@ -80,6 +80,50 @@ def test_resolved_controls_cross_native_boundary(monkeypatch, jobs, expected):
     result = BankaiBoruta(base, n_estimators=2, max_iter=2).fit(X, np.arange(24) % 2)
     assert result.diagnostics_['path'] == 'rust'
     assert calls == [(expected, 1)]  # floor(.15 * 12 augmented columns)
+
+
+@pytest.mark.parametrize('backend,bins,dtype', [
+    ('exact', None, np.float32),
+    ('binned', 31, np.float32),
+])
+def test_native_and_adapter_parity_for_each_extra_trees_backend(backend, bins, dtype):
+    X = np.random.default_rng(10).normal(size=(96, 12)).astype(dtype)
+    y = (X[:, 0] + X[:, 1] > 0).astype(int)
+    base = BankaiRandomForestClassifier(n_estimators=5, max_depth=4, max_bins=bins,
+        n_jobs=2, extra_trees=True, extra_trees_backend=backend, bootstrap=True)
+    kwargs = dict(n_estimators=5, max_iter=4, random_state=42, store_history=True)
+    native = BankaiBoruta(base, **kwargs).fit(X, y)
+    adapter = BankaiBoruta(base, importance_getter='feature_importances_', **kwargs).fit(X, y)
+    assert native.diagnostics_['path'] == 'rust'
+    np.testing.assert_allclose(native.importance_history_, adapter.importance_history_, atol=1e-14, equal_nan=True)
+    np.testing.assert_array_equal(native.support_, adapter.support_)
+
+
+@pytest.mark.parametrize('backend,bins', [('exact', None), ('binned', 31)])
+def test_native_forwards_custom_bankairf_controls(backend, bins):
+    X = np.random.default_rng(12).normal(size=(96, 10)).astype(np.float32)
+    y = (X[:, 0] > 0).astype(int)
+    base = BankaiRandomForestClassifier(n_estimators=5, max_depth=4, max_bins=bins,
+        n_jobs=2, criterion='entropy', min_samples_split=4, min_samples_leaf=2,
+        min_weight_fraction_leaf=.01, min_impurity_decrease=.001, max_leaf_nodes=9,
+        max_samples=.8, bootstrap=True, binning_strategy='sampled_sort',
+        bin_sample_size=80, binning_seed=27, extra_trees=True, extra_trees_backend=backend)
+    options = dict(n_estimators=5, max_iter=3, random_state=11, store_history=True)
+    selector = BankaiBoruta(base, **options).fit(X, y)
+    adapter = BankaiBoruta(base, importance_getter='feature_importances_', **options).fit(X, y)
+    assert selector.diagnostics_['path'] == 'rust'
+    assert 'estimator controls forwarded' in selector.diagnostics_['reason']
+    np.testing.assert_allclose(selector.importance_history_, adapter.importance_history_, atol=1e-14, equal_nan=True)
+
+
+def test_exact_native_requires_float32_and_falls_back_for_float64():
+    X = np.random.default_rng(5).normal(size=(64, 8)).astype(np.float64)
+    y = (X[:, 0] > 0).astype(int)
+    base = BankaiRandomForestClassifier(n_estimators=3, max_depth=3, max_bins=None,
+        n_jobs=1, extra_trees=True, extra_trees_backend='exact')
+    selector = BankaiBoruta(base, n_estimators=3, max_iter=3, random_state=3).fit(X, y)
+    assert selector.diagnostics_['path'] == 'python'
+    assert selector.diagnostics_['reason'] == 'exact native Extra Trees currently requires float32 input'
 
 
 @pytest.mark.parametrize('threads,features', [(0, 1), (1, 0), (1, 3)])

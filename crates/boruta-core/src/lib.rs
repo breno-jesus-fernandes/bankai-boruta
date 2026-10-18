@@ -18,10 +18,21 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
     trees: usize,
     depth: usize,
     seed: u64,
-    bins: usize,
+    bins: Option<usize>,
     extra_seed: u64,
     threads: usize,
     max_features: usize,
+    criterion: &str,
+    min_samples_split: usize,
+    min_samples_leaf: usize,
+    min_leaf_weight: f64,
+    min_impurity_decrease: f64,
+    max_leaves: usize,
+    bootstrap: bool,
+    sample_size: Option<usize>,
+    binning_strategy: &str,
+    bin_sample_size: usize,
+    binning_seed: u64,
     value: F,
 ) -> Result<GainResult, String> {
     let start = Instant::now();
@@ -33,7 +44,15 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
         || max_features > columns
         || trees == 0
         || depth == 0
-        || !(2..=255).contains(&bins)
+        || bins.is_some_and(|value| !(2..=255).contains(&value))
+        || min_samples_split < 2
+        || min_samples_leaf == 0
+        || !min_leaf_weight.is_finite()
+        || min_leaf_weight < 0.0
+        || !min_impurity_decrease.is_finite()
+        || min_impurity_decrease < 0.0
+        || (sample_size.is_some() && !bootstrap)
+        || (bins.is_some() && bin_sample_size == 0)
     {
         return Err("invalid training settings".into());
     }
@@ -42,27 +61,53 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
         return Err("invalid classification labels".into());
     }
     let classes = max_label + 1;
-    let input = DenseInput::training_binned_with_accessor_and_seed(
-        rows,
-        columns,
-        labels,
-        vec![1.; rows],
-        classes,
-        0.,
-        Criterion::Gini,
-        2,
-        1,
-        0.,
-        bins,
-        threads,
-        BinningStrategy::ExactSort,
-        200000,
-        6,
-        value,
-    )?
-    .with_extra_trees(true, extra_seed)
-    .with_histogram_threads(1)
-    .with_binned_extra_trees(threads);
+    let criterion = match criterion {
+        "gini" => Criterion::Gini,
+        "entropy" | "log_loss" => Criterion::Entropy,
+        _ => return Err("criterion must be 'gini', 'entropy', or 'log_loss'".into()),
+    };
+    let binning_strategy = BinningStrategy::parse(binning_strategy)?;
+    let input = if let Some(bins) = bins {
+        DenseInput::training_binned_with_accessor_and_seed(
+            rows,
+            columns,
+            labels,
+            vec![1.; rows],
+            classes,
+            min_leaf_weight,
+            criterion,
+            min_samples_split,
+            min_samples_leaf,
+            min_impurity_decrease,
+            bins,
+            threads,
+            binning_strategy,
+            bin_sample_size,
+            binning_seed,
+            value,
+        )?
+        .with_extra_trees(true, extra_seed)
+        .with_float32_column_storage(threads)
+        .with_histogram_threads(1)
+        .with_binned_extra_trees(threads)
+    } else {
+        DenseInput::training_exact_f32_with_accessor(
+            rows,
+            columns,
+            labels,
+            vec![1.; rows],
+            classes,
+            min_leaf_weight,
+            criterion,
+            min_samples_split,
+            min_samples_leaf,
+            min_impurity_decrease,
+            threads,
+            |row, column| value(row, column) as f32,
+        )?
+        .with_extra_trees(true, extra_seed)
+        .with_histogram_threads(1)
+    };
     let preparation_seconds = start.elapsed().as_secs_f64();
     let start = Instant::now();
     let forest = Forest::new_parallel_with_settings(
@@ -75,9 +120,9 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
         seed,
         threads.min(trees),
         depth,
-        usize::MAX,
-        true,
-        None,
+        max_leaves,
+        bootstrap,
+        sample_size,
     );
     let mut result = vec![0.; columns];
     let mut gains = vec![0.; columns];
@@ -120,10 +165,21 @@ mod tests {
                 2,
                 3,
                 1,
-                63,
+                Some(63),
                 6,
                 threads,
                 max_features,
+                "gini",
+                2,
+                1,
+                0.,
+                0.,
+                usize::MAX,
+                true,
+                None,
+                "exact_sort",
+                200000,
+                6,
                 |row, column| (row + column) as f64,
             );
             assert!(matches!(result, Err(message) if message == "invalid training settings"));

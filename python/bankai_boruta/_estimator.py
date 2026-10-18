@@ -134,7 +134,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         p = X.shape[1]
         self.max_iter_ = _greedy_rounds(p, self.alpha, self.bonferroni) if self.greedy else self.max_iter
         # Native eligibility is deliberately conservative and checked against a15.
-        native, reason = self._native_eligibility(base, params, weights)
+        native, reason = self._native_eligibility(base, params, weights, X)
         if not native and X.dtype != np.float64:
             convert_started = perf_counter()
             X = X.astype(np.float64)
@@ -195,10 +195,17 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                 self.estimator_.set_params(monotonic_cst=np.r_[constraints[active], np.zeros(len(sources), dtype=int)])
             if native:
                 from . import _boruta_core
-                scores, prep, train = _boruta_core.gain_importances(X, encoded, active.astype(np.int64), sources.astype(np.int64), permutations,
-                    int(self.estimator_.n_estimators), int(params['max_depth'] or 512), int(check_random_state(seed).randint(np.iinfo(np.int32).max)),
-                    int(params['max_bins']), int(params['extra_seed']),
-                    self.estimator_._resolve_n_jobs(), self._native_max_features(len(active) + len(sources)))
+                settings = self._native_settings_
+                scores, prep, train = _boruta_core.gain_importances(
+                    X, encoded, active.astype(np.int64), sources.astype(np.int64), permutations,
+                    int(self.estimator_.n_estimators), int(params['max_depth'] or 512),
+                    int(check_random_state(seed).randint(np.iinfo(np.int32).max)),
+                    settings['bins'], int(params['extra_seed']), settings['threads'],
+                    self._native_max_features(len(active) + len(sources)), settings['backend'],
+                    settings['criterion'], settings['min_samples_split'], settings['min_samples_leaf'],
+                    settings['min_leaf_weight'], settings['min_impurity_decrease'], settings['max_leaves'],
+                    settings['bootstrap'], settings['sample_size'], settings['binning_strategy'],
+                    settings['bin_sample_size'], settings['binning_seed'])
                 self.diagnostics_['preparation_seconds'] += prep
                 self.diagnostics_['training_seconds'] += train
                 self.diagnostics_['training_storage_rebuilds'] += 1
@@ -285,13 +292,17 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         self.estimator_.n_features_in_ = width
         return self.estimator_._resolve_max_features()
 
-    def _native_eligibility(self, base, params, weights):
+    def _native_eligibility(self, base, params, weights, X):
         from bankai_random_forest import BankaiRandomForestClassifier
         if type(base) is not BankaiRandomForestClassifier or self.importance_getter != 'auto':
             return False, 'external estimator or custom importance getter'
-        # All other configurations retain a15 validation and parameter semantics.
+        # The native Rust path accepts estimator controls explicitly. Options
+        # not represented at this boundary retain BankaiRF's Python fit path.
         defaults = BankaiRandomForestClassifier(extra_trees=True, extra_trees_backend='binned', max_bins=63, max_depth=6, n_jobs=-1).get_params()
-        allowed = {'n_estimators', 'random_state', 'max_depth', 'max_bins', 'extra_seed', 'n_jobs', 'max_features'}
+        allowed = {'n_estimators', 'random_state', 'max_depth', 'max_bins', 'extra_seed', 'n_jobs', 'max_features',
+                   'extra_trees_backend', 'criterion', 'min_samples_split', 'min_samples_leaf',
+                   'min_weight_fraction_leaf', 'min_impurity_decrease', 'max_leaf_nodes',
+                   'bootstrap', 'max_samples', 'binning_strategy', 'bin_sample_size', 'binning_seed'}
         if weights is not None or any(type(params[k]) is not type(v) or not np.array_equal(params[k], v) for k, v in defaults.items() if k not in allowed):
             return False, 'configuration outside the validated native subset'
         if self.n_estimators is None and (not isinstance(params['n_estimators'], Integral) or isinstance(params['n_estimators'], bool) or params['n_estimators'] < 1):
@@ -300,9 +311,42 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             return False, 'depth requires a15 parameter validation'
         if not isinstance(params['extra_seed'], Integral) or isinstance(params['extra_seed'], bool) or not 0 <= params['extra_seed'] < 2**64:
             return False, 'Extra Trees seed requires a15 parameter validation'
-        if not isinstance(params['max_bins'], Integral) or not 2 <= params['max_bins'] <= 255:
-            return False, 'max_bins outside native subset'
-        return True, 'a15 binned Extra Trees gain; virtual shadows'
+        backend = params['extra_trees_backend']
+        if backend not in ('exact', 'binned'):
+            return False, 'Extra Trees backend outside native subset'
+        if backend == 'exact' and params['max_bins'] is not None:
+            return False, 'exact Extra Trees requires max_bins=None'
+        if backend == 'exact' and X.dtype != np.float32:
+            return False, 'exact native Extra Trees currently requires float32 input'
+        if backend == 'binned' and (not isinstance(params['max_bins'], Integral) or isinstance(params['max_bins'], bool) or not 2 <= params['max_bins'] <= 255):
+            return False, 'binned Extra Trees requires max_bins in [2, 255]'
+        if params['criterion'] not in ('gini', 'entropy', 'log_loss'):
+            return False, 'criterion outside native subset'
+        if not isinstance(params['bootstrap'], bool):
+            return False, 'bootstrap requires a bool'
+        try:
+            max_bins = base._resolve_max_bins()
+            max_depth = base._resolve_max_depth()
+            max_features = self._native_max_features(X.shape[1])
+            min_samples_split = base._resolve_min_samples(params['min_samples_split'], 2, 'min_samples_split', len(X))
+            min_samples_leaf = base._resolve_min_samples(params['min_samples_leaf'], 1, 'min_samples_leaf', len(X))
+            min_leaf_weight = base._validate_min_weight_fraction_leaf(None, len(X))
+            min_impurity_decrease = base._resolve_min_impurity_decrease()
+            max_leaves = base._resolve_max_leaf_nodes()
+            sample_size = base._resolve_max_samples(len(X))
+            threads = base._resolve_n_jobs()
+            binning_strategy = base._resolve_binning_strategy()
+            bin_sample_size = base._resolve_bin_sample_size()
+            binning_seed = base._resolve_binning_seed()
+        except (TypeError, ValueError, OverflowError) as exc:
+            return False, f'BankaiRF parameter validation requires Python fit: {exc}'
+        self._native_settings_ = dict(backend=backend, bins=max_bins, criterion=params['criterion'],
+            min_samples_split=min_samples_split, min_samples_leaf=min_samples_leaf,
+            min_leaf_weight=min_leaf_weight, min_impurity_decrease=min_impurity_decrease,
+            max_leaves=max_leaves, bootstrap=params['bootstrap'], sample_size=sample_size,
+            threads=threads, binning_strategy=binning_strategy, bin_sample_size=bin_sample_size,
+            binning_seed=binning_seed, max_depth=max_depth, max_features=max_features)
+        return True, f'a15 {backend} Extra Trees gain; virtual shadows; estimator controls forwarded'
 
     def _importances(self):
         getter = self.importance_getter
