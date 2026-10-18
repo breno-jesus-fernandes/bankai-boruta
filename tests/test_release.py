@@ -145,3 +145,20 @@ def test_current_release_versions_are_consistent():
     rust_lock = tomllib.loads((root / 'Cargo.lock').read_text())
     for name in ('boruta-core', 'bankai-boruta-python'):
         assert next(p['version'] for p in rust_lock['package'] if p['name'] == name) == rust_version
+
+
+def test_immutable_forest_source_alignment():
+    import re
+    import tomllib
+    root = Path(__file__).resolve().parents[1]
+    project = tomllib.loads((root/'pyproject.toml').read_text())
+    source = project['tool']['uv']['sources']['bankai-random-forest']
+    assert re.fullmatch('[0-9a-f]{40}', source['rev'])
+    dependencies = tomllib.loads((root/'crates/boruta-core/Cargo.toml').read_text())['dependencies']
+    for name in ('bankai-random-forest', 'xrf'):
+        assert dependencies[name]['git'] == source['git']
+        assert dependencies[name]['rev'] == source['rev']
+    for lock in ('uv.lock','Cargo.lock'):
+        package = next(p for p in tomllib.loads((root/lock).read_text())['package'] if p['name']=='bankai-random-forest')
+        assert source['rev'] in str(package['source'])
+        assert package['version'] == ('0.1.0a16' if lock=='uv.lock' else '0.1.0-alpha.16')

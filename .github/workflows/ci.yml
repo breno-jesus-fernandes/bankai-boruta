@@ -381,6 +381,8 @@ jobs:
         with:
           version: 0.12.21
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
+        with:
+          toolchain: stable
       - name: Install candidate and frozen reference
         run: |
           uv python install 3.13

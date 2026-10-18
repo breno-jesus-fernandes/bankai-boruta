@@ -56,3 +56,8 @@ macOS local builds of the Boruta extension need dependency-wide dynamic symbol
 lookup because the RF dependency also emits a cdylib:
 `RUSTFLAGS='-C link-arg=-undefined -C link-arg=dynamic_lookup' uv run --no-sync maturin develop --release --locked`.
 CI configures this flag on macOS. Other platforms retain their normal linker settings.
+
+The Python audit preserves hashes for registry dependencies, including the RF
+transitive requirements. Its export excludes only the immutable RF VCS project,
+which pip-audit cannot hash; that project's own audit runs in RF PR #21.
+Release tests check the full git revision against both manifests and lockfiles.
