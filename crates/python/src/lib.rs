@@ -636,13 +636,24 @@ struct ShadowSession {
     columns: usize,
     bank: std::sync::Arc<Vec<f32>>,
     labels: Vec<usize>,
+    order: Vec<usize>,
     shadows: std::sync::Arc<Vec<f32>>,
+    binned: Option<BinnedBank>,
+}
+
+/// Real columns binned once per fit; the float bank is then released.
+struct BinnedBank {
+    codes: Vec<u8>,
+    edges: Vec<Vec<f64>>,
+    max_bins: usize,
 }
 
 #[pymethods]
 impl ShadowSession {
     #[new]
-    fn new(x: PyReadonlyArray2<'_, f32>, y: PyReadonlyArray1<'_, i64>, threads: usize) -> PyResult<Self> {
+    #[pyo3(signature = (x, y, threads, bins=None, binning_strategy="exact_sort", bin_sample_size=200000, binning_seed=6))]
+    fn new(x: PyReadonlyArray2<'_, f32>, y: PyReadonlyArray1<'_, i64>, threads: usize, bins: Option<usize>,
+           binning_strategy: &str, bin_sample_size: usize, binning_seed: u64) -> PyResult<Self> {
         let x = x.as_array();
         let (rows, columns) = x.dim();
         let labels = y
@@ -658,16 +669,45 @@ impl ShadowSession {
             return Err(PyValueError::new_err("invalid training arrays or settings"));
         }
         let order = boruta_core::canonical_row_order(rows, columns, &labels, |r, c| x[[r, c]]);
-        let bank = boruta_core::real_bank(rows, columns, &order, threads, |r, c| x[[r, c]]);
         let labels = order.iter().map(|&r| labels[r]).collect();
-        Ok(Self { rows, columns, bank: std::sync::Arc::new(bank), labels, shadows: std::sync::Arc::new(Vec::new()) })
+        let (bank, binned) = match bins {
+            None => (boruta_core::real_bank(rows, columns, &order, threads, |r, c| x[[r, c]]), None),
+            Some(max_bins) => {
+                // Bin straight from the input in canonical order; no float bank.
+                let strategy = boruta_core::BinningStrategy::parse(binning_strategy).map_err(PyValueError::new_err)?;
+                let (codes, edges) = boruta_core::DenseInput::bin_columns(rows, columns, max_bins, threads, strategy,
+                    bin_sample_size, binning_seed, |r, c| f64::from(x[[order[r], c]])).map_err(PyValueError::new_err)?;
+                (Vec::new(), Some(BinnedBank { codes, edges, max_bins }))
+            }
+        };
+        Ok(Self { rows, columns, bank: std::sync::Arc::new(bank), labels, order, shadows: std::sync::Arc::new(Vec::new()), binned })
     }
 
     #[getter]
-    fn bank_bytes(&self) -> usize { self.bank.len() * 4 }
+    fn bank_bytes(&self) -> usize { self.binned.as_ref().map_or(self.bank.len() * 4, |b| b.codes.len()) }
+
+    fn _canonical_order(&self) -> Vec<usize> { self.order.clone() }
+
+    /// Training-order real columns and last round's shadows, for parity tests.
+    fn _training_matrix<'py>(&self, py: Python<'py>, active: Vec<usize>, shadows: usize) -> PyResult<Bound<'py, numpy::PyArray2<f32>>> {
+        if self.binned.is_some() {
+            return Err(PyValueError::new_err("binned sessions keep codes only"));
+        }
+        let rows = self.rows;
+        let mut out = numpy::ndarray::Array2::<f32>::zeros((rows, active.len() + shadows));
+        for (j, &c) in active.iter().enumerate() {
+            out.column_mut(j).assign(&numpy::ndarray::ArrayView1::from(&self.bank[c * rows..(c + 1) * rows]));
+        }
+        for j in 0..shadows {
+            out.column_mut(active.len() + j).assign(&numpy::ndarray::ArrayView1::from(&self.shadows[j * rows..(j + 1) * rows]));
+        }
+        Ok(numpy::PyArray2::from_owned_array(py, out))
+    }
+
+    fn _training_labels(&self) -> Vec<usize> { self.labels.clone() }
 
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (active, sources, shadow_seed, trees, depth, seed, extra_seed, threads, max_features, criterion="gini", min_samples_split=2, min_samples_leaf=1, min_leaf_weight=0.0, min_impurity_decrease=0.0, max_leaves=None, bootstrap=true, sample_size=None))]
+    #[pyo3(signature = (active, sources, shadow_seed, trees, depth, seed, extra_seed, threads, max_features, criterion="gini", min_samples_split=2, min_samples_leaf=1, min_leaf_weight=0.0, min_impurity_decrease=0.0, max_leaves=None, bootstrap=true, sample_size=None, extra_trees=true))]
     fn gain_importances(
         &mut self,
         active: PyReadonlyArray1<'_, i64>,
@@ -687,6 +727,7 @@ impl ShadowSession {
         max_leaves: Option<usize>,
         bootstrap: bool,
         sample_size: Option<usize>,
+        extra_trees: bool,
     ) -> PyResult<(Vec<f64>, f64, f64, std::collections::HashMap<String, f64>)> {
         let start = std::time::Instant::now();
         let to_columns = |values: PyReadonlyArray1<'_, i64>| -> PyResult<Vec<usize>> {
@@ -699,14 +740,47 @@ impl ShadowSession {
         if active.is_empty() || sources.is_empty() || threads == 0 {
             return Err(PyValueError::new_err("invalid training arrays or settings"));
         }
+        if let Some(binned) = &self.binned {
+            if !extra_trees {
+                return Err(PyValueError::new_err("binned sessions train Extra Trees"));
+            }
+            let rows = self.rows;
+            let mut codes = Vec::with_capacity((active.len() + sources.len()) * rows);
+            for &c in &active {
+                codes.extend_from_slice(&binned.codes[c * rows..(c + 1) * rows]);
+            }
+            codes.resize((active.len() + sources.len()) * rows, 0);
+            boruta_core::fill_shadows(&binned.codes, rows, &sources, shadow_seed, threads, &mut codes[active.len() * rows..]);
+            let edges = active.iter().chain(&sources).map(|&c| binned.edges[c].clone()).collect();
+            let shuffle_seconds = start.elapsed().as_secs_f64();
+            let codes_bytes = codes.len() as f64;
+            let result = boruta_core::gain_importances_binned(
+                rows, codes, edges, self.labels.clone(), binned.max_bins, trees, depth, seed, extra_seed, threads,
+                max_features, criterion, min_samples_split, min_samples_leaf, min_leaf_weight,
+                min_impurity_decrease, max_leaves.unwrap_or(usize::MAX), bootstrap, sample_size,
+            )
+            .map_err(PyValueError::new_err)?;
+            let metrics = [
+                ("shuffle_seconds", shuffle_seconds),
+                ("storage_seconds", result.preparation_seconds),
+                ("real_bank_bytes", binned.codes.len() as f64),
+                ("shadow_buffer_bytes", codes_bytes),
+                ("materialized_bytes", 0.),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v))
+            .collect();
+            return Ok((result.importances, shuffle_seconds + result.preparation_seconds, result.training_seconds, metrics));
+        }
         // The previous round's forest is gone, so the buffer is uniquely owned.
         let buffer = std::sync::Arc::make_mut(&mut self.shadows);
+        buffer.resize(sources.len() * self.rows, 0.);
         boruta_core::fill_shadows(&self.bank, self.rows, &sources, shadow_seed, threads, buffer);
         let shuffle_seconds = start.elapsed().as_secs_f64();
         let table = boruta_core::ExactColumnTable::new(self.rows, self.bank.clone(), self.shadows.clone(), &active, sources.len())
             .map_err(PyValueError::new_err)?;
         let result = boruta_core::gain_importances_columns(
-            table, self.labels.clone(), trees, depth, seed, extra_seed, threads, max_features,
+            table, self.labels.clone(), extra_trees, trees, depth, seed, extra_seed, threads, max_features,
             criterion, min_samples_split, min_samples_leaf, min_leaf_weight, min_impurity_decrease,
             max_leaves.unwrap_or(usize::MAX), bootstrap, sample_size,
         )
@@ -726,10 +800,22 @@ impl ShadowSession {
     }
 }
 
+/// Shadow columns of a column-major float32 bank, as a session fills them.
+#[pyfunction]
+fn _fill_shadows_f32(bank: Vec<f32>, rows: usize, sources: Vec<usize>, seed: u64, threads: usize) -> PyResult<Vec<f32>> {
+    if rows == 0 || bank.len() % rows != 0 || sources.iter().any(|&c| c >= bank.len() / rows) {
+        return Err(PyValueError::new_err("invalid bank or sources"));
+    }
+    let mut shadows = vec![0.; sources.len() * rows];
+    boruta_core::fill_shadows(&bank, rows, &sources, seed, threads.max(1), &mut shadows);
+    Ok(shadows)
+}
+
 #[pymodule]
 fn _boruta_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ExactSession>()?;
     m.add_class::<ShadowSession>()?;
+    m.add_function(wrap_pyfunction!(_fill_shadows_f32, m)?)?;
     m.add_function(wrap_pyfunction!(gain_importances, m)?)?;
     m.add_function(wrap_pyfunction!(shuffle_uint32, m)?)?;
     Ok(())

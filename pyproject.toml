@@ -46,4 +46,4 @@ pythonpath = ["."]
 
 # Immutable development dependency until alpha16 is published first.
 [tool.uv.sources]
-bankai-random-forest = { git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "fe3674ae806c459a84a509518f1a527043d0f5cf" }
+bankai-random-forest = { git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "9a9a55af107e8cfd9f5aad8dc2c135553ce2531f" }

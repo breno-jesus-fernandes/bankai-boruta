@@ -6,6 +6,14 @@ from bankai_boruta._estimator import _permutation_dtype
 from bankai_random_forest import BankaiRandomForestClassifier
 
 
+@pytest.fixture(autouse=True)
+def a7_reference(monkeypatch):
+    # Exact native/adapter parity is the a7 reference contract: its shadows are
+    # NumPy permutations. Shadow sessions are covered in test_shadow_session.py.
+    monkeypatch.setenv('BANKAI_BORUTA_EXACT_REFERENCE', '1')
+
+
+
 def forest(threads=1):
     return BankaiRandomForestClassifier(n_estimators=3, max_depth=3, max_bins=63, n_jobs=threads,
         extra_trees=True, extra_trees_backend='binned')

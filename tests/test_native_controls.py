@@ -3,6 +3,14 @@ import pytest
 from bankai_boruta import BankaiBoruta
 from bankai_random_forest import BankaiRandomForestClassifier
 
+
+@pytest.fixture(autouse=True)
+def a7_reference(monkeypatch):
+    # Exact native/adapter parity is the a7 reference contract: its shadows are
+    # NumPy permutations. Shadow sessions are covered in test_shadow_session.py.
+    monkeypatch.setenv('BANKAI_BORUTA_EXACT_REFERENCE', '1')
+
+
 @pytest.mark.parametrize('threads', [1, 4])
 @pytest.mark.parametrize('features', ['sqrt', .15, 3, None, 'log2'])
 @pytest.mark.parametrize('greedy', [False, True])
@@ -129,7 +137,7 @@ def test_exact_native_requires_float32_and_falls_back_for_float64():
         n_jobs=1, extra_trees=True, extra_trees_backend='exact')
     selector = BankaiBoruta(base, n_estimators=3, max_iter=3, random_state=3).fit(X, y)
     assert selector.diagnostics_['path'] == 'python'
-    assert selector.diagnostics_['reason'] == 'exact native Extra Trees currently requires float32 input'
+    assert selector.diagnostics_['reason'] == 'exact native forests currently require float32 input'
 
 
 @pytest.mark.parametrize('threads,features', [(0, 1), (1, 0), (1, 3)])

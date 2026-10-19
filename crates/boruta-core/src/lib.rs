@@ -1,7 +1,7 @@
 //! BankaiRF a15 training with virtual shadow access and per-tree gain normalization.
 #![forbid(unsafe_code)]
-use bankai_random_forest::dense::{BinningStrategy, Criterion, DenseInput};
-pub use bankai_random_forest::dense::{ExactColumnBank, ExactColumnTable, ExactRowIndices, ExactVirtualColumns};
+use bankai_random_forest::dense::Criterion;
+pub use bankai_random_forest::dense::{BinningStrategy, DenseInput, ExactColumnBank, ExactColumnTable, ExactRowIndices, ExactVirtualColumns};
 use std::time::Instant;
 use xrf::{Forest, RfInput};
 
@@ -291,9 +291,10 @@ impl ShadowRng {
 }
 
 /// Fill one shadow per source: copy the bank column, then Fisher-Yates in place.
-/// Each column has its own stream, so the result does not depend on `threads`.
-pub fn fill_shadows(bank: &[f32], rows: usize, sources: &[usize], seed: u64, threads: usize, shadows: &mut Vec<f32>) {
-    shadows.resize(sources.len() * rows, 0.);
+/// Each column has its own stream, so the result does not depend on `threads`,
+/// and float values and their bin codes receive the same permutation.
+pub fn fill_shadows<T: Copy + Send + Sync>(bank: &[T], rows: usize, sources: &[usize], seed: u64, threads: usize, shadows: &mut [T]) {
+    assert_eq!(shadows.len(), sources.len() * rows, "shadow buffer shape");
     let per_worker = sources.len().div_ceil(threads.max(1)).max(1);
     std::thread::scope(|scope| {
         for (block, dst) in shadows.chunks_mut(per_worker * rows).enumerate() {
@@ -343,12 +344,94 @@ fn tree_normalized_gains(forest: &Forest<DenseInput>, columns: usize) -> Vec<f64
     result
 }
 
-/// Exact Extra Trees over real bank columns and a shadow buffer, both already
-/// in training-row order; nothing is gathered or materialized per round.
+/// Binned Extra Trees over column-major codes whose columns are real bank
+/// columns followed by shuffled shadow codes, each with its source's edges.
+#[allow(clippy::too_many_arguments)]
+pub fn gain_importances_binned(
+    rows: usize,
+    codes: Vec<u8>,
+    edges: Vec<Vec<f64>>,
+    labels: Vec<usize>,
+    max_bins: usize,
+    trees: usize,
+    depth: usize,
+    seed: u64,
+    extra_seed: u64,
+    threads: usize,
+    max_features: usize,
+    criterion: &str,
+    min_samples_split: usize,
+    min_samples_leaf: usize,
+    min_leaf_weight: f64,
+    min_impurity_decrease: f64,
+    max_leaves: usize,
+    bootstrap: bool,
+    sample_size: Option<usize>,
+) -> Result<GainResult, String> {
+    let start = Instant::now();
+    let columns = edges.len();
+    if threads == 0 || trees == 0 || depth == 0 || max_features == 0 || max_features > columns
+        || (sample_size.is_some() && !bootstrap)
+    {
+        return Err("invalid training settings".into());
+    }
+    let max_label = labels.iter().max().copied().ok_or("empty target")?;
+    if max_label == 0 || max_label >= rows {
+        return Err("invalid classification labels".into());
+    }
+    let criterion = match criterion {
+        "gini" => Criterion::Gini,
+        "entropy" | "log_loss" => Criterion::Entropy,
+        _ => return Err("criterion must be 'gini', 'entropy', or 'log_loss'".into()),
+    };
+    let input = DenseInput::training_binned_columns(
+        rows, codes, edges, labels, max_label + 1, min_leaf_weight, criterion,
+        min_samples_split, min_samples_leaf, min_impurity_decrease, max_bins,
+    )?
+    .with_extra_trees(true, extra_seed)
+    .with_histogram_threads(1);
+    let preparation_seconds = start.elapsed().as_secs_f64();
+    let start = Instant::now();
+    let forest = Forest::new_parallel_with_settings(
+        &input, trees, max_features, true, false, false, seed,
+        threads.min(trees), depth, max_leaves, bootstrap, sample_size,
+    );
+    Ok(GainResult {
+        importances: tree_normalized_gains(&forest, columns),
+        preparation_seconds,
+        training_seconds: start.elapsed().as_secs_f64(),
+        feature_workspace_peak_bytes_per_worker: 0.,
+    })
+}
+
+/// Global gain shares, as BankaiRF reports for ordinary Random Forests.
+fn forest_normalized_gains(forest: &Forest<DenseInput>, columns: usize) -> Vec<f64> {
+    let mut result = vec![0.; columns];
+    for tree in forest.tree_refs() {
+        for node in &tree.nodes {
+            if let xrf::Node::Branch(feature, _, score, _, _, _) = node {
+                result[*feature] += score.abs();
+            }
+        }
+    }
+    let total: f64 = result.iter().sum();
+    if total > 0. {
+        for gain in &mut result {
+            *gain /= total;
+        }
+    }
+    result
+}
+
+/// Exact Extra Trees or Random Forest over real bank columns and a shadow
+/// buffer, both already in training-row order; nothing is gathered or
+/// materialized per round. Importances follow BankaiRF's `gain` semantics:
+/// per-tree normalized for Extra Trees, forest-normalized otherwise.
 #[allow(clippy::too_many_arguments)]
 pub fn gain_importances_columns(
     table: ExactColumnTable,
     labels: Vec<usize>,
+    extra_trees: bool,
     trees: usize,
     depth: usize,
     seed: u64,
@@ -388,7 +471,7 @@ pub fn gain_importances_columns(
         table, labels, max_label + 1, min_leaf_weight, criterion,
         min_samples_split, min_samples_leaf, min_impurity_decrease,
     )?
-    .with_extra_trees(true, extra_seed)
+    .with_extra_trees(extra_trees, extra_seed)
     .with_histogram_threads(1)
     .with_profiling(Some(profile.clone()));
     let columns = input.feature_count();
@@ -401,8 +484,9 @@ pub fn gain_importances_columns(
         &input, trees, max_features, true, false, false, seed,
         threads.min(trees), depth, max_leaves, bootstrap, sample_size,
     );
+    let importances = if extra_trees { tree_normalized_gains(&forest, columns) } else { forest_normalized_gains(&forest, columns) };
     Ok(GainResult {
-        importances: tree_normalized_gains(&forest, columns),
+        importances,
         preparation_seconds,
         training_seconds: start.elapsed().as_secs_f64(),
         feature_workspace_peak_bytes_per_worker: profile.snapshot()["feature_buffer_peak_bytes_per_worker"],
@@ -452,10 +536,10 @@ mod shadow_session_tests {
         let rows = 257;
         let bank: Vec<f32> = (0..rows * 3).map(|i| i as f32).collect();
         let sources = [2, 0, 2, 1, 0];
-        let mut reference = Vec::new();
+        let mut reference = vec![0.; sources.len() * rows];
         fill_shadows(&bank, rows, &sources, 11, 1, &mut reference);
         for threads in [2, 3, 8] {
-            let mut other = vec![7.; 3];
+            let mut other = vec![7.; sources.len() * rows];
             fill_shadows(&bank, rows, &sources, 11, threads, &mut other);
             assert_eq!(reference, other);
         }
@@ -467,8 +551,13 @@ mod shadow_session_tests {
         }
         // Repeated sources draw independent permutations.
         assert_ne!(reference[..rows], reference[2 * rows..3 * rows]);
-        let mut reseeded = Vec::new();
+        let mut reseeded = vec![0.; sources.len() * rows];
         fill_shadows(&bank, rows, &sources, 12, 2, &mut reseeded);
+        // Codes follow their values through the identical permutation.
+        let codes: Vec<u16> = bank.iter().map(|&v| v as u16).collect();
+        let mut shuffled = vec![0u16; sources.len() * rows];
+        fill_shadows(&codes, rows, &sources, 11, 4, &mut shuffled);
+        assert!(shuffled.iter().zip(&reference).all(|(&c, &v)| c == v as u16));
         assert_ne!(reference, reseeded);
     }
 
@@ -477,7 +566,7 @@ mod shadow_session_tests {
         let rows = 8;
         let bank: Vec<f32> = (0..rows).map(|i| i as f32).collect();
         let mut counts = [[0u32; 8]; 8];
-        let mut shadows = Vec::new();
+        let mut shadows = vec![0.; rows];
         for seed in 0..20_000 {
             fill_shadows(&bank, rows, &[0], seed, 1, &mut shadows);
             for (position, &value) in shadows.iter().enumerate() {

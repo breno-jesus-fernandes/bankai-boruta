@@ -263,10 +263,12 @@ records the path and its reason.
 
 The a8 release aligns Python and Rust dependencies to BankaiRF **0.1.0a17**;
 the immutable Rust/development Python revision is
-`fe3674ae806c459a84a509518f1a527043d0f5cf`. RF a17 must be published first.
-Native exact fits use a shadow session by default: one canonical float32 bank
-per fit plus a reusable buffer of shuffled shadow values, with no augmented
-matrix or permutation maps. `BANKAI_BORUTA_EXACT_REFERENCE=1` selects the a7
+`9a9a55af107e8cfd9f5aad8dc2c135553ce2531f`. RF a17 must be published first.
+Native fits use a shadow session by default: one canonical bank per fit
+(float32 values for exact forests, one-byte bin codes for binned Extra Trees)
+plus shuffled shadow columns, with no augmented float matrix or permutation
+maps. Exact Extra Trees, exact Random Forests and float32 binned Extra Trees
+share it. `BANKAI_BORUTA_EXACT_REFERENCE=1` selects the a7
 materialized path and `BANKAI_BORUTA_EXACT_SESSION=1` the a7 virtual session.
 Independent fits never share sessions.
 `diagnostics_` also reports `input_dtype` (received dtype),

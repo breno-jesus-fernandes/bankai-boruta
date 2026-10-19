@@ -12,6 +12,13 @@
   instead of 8.0 s (a7 materialized) or 7.1 s (a7 virtual session); five-seed
   full fits run 1.9-4.3x faster than BorutaPy with scikit-learn ExtraTrees at
   the same settings, with lower peak RSS and the same selections.
+- Extend the shadow session to every native backend. Binned Extra Trees
+  (including the default estimator) bin float32 real columns once per fit and
+  shuffle their bin codes for shadows: a 500-feature round drops from 7.7 s to
+  2.0 s and the bank is one byte per value. Ordinary exact Random Forests
+  (`extra_trees=False`, `max_bins=None`) now take the native path too, with
+  BankaiRF's forest-normalized gain. Float64 binned input keeps per-round
+  binning; binned Random Forests keep the Python fit.
 - Sum per-tree gain shares in fixed point, so importances are identical for
   any worker count and tree completion order.
 - Shadow values come from a new stream, so selections for a given
