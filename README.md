@@ -261,11 +261,16 @@ getters use the Python adapter, preserving estimator parameters and forest
 validation. Shadow monotonic constraints are always zero. `diagnostics_`
 records the path and its reason.
 
-The a7 candidate aligns Python and Rust dependencies to BankaiRF **0.1.0a16**;
+The a8 release aligns Python and Rust dependencies to BankaiRF **0.1.0a17**;
 the immutable Rust/development Python revision is
-`da52a5bc0e2358911131d3b06d9cea65fc360505`. RF a16 must be published first.
-Default storage is rebuilt each round. The opt-in session shares one real bank
-and caches its primary order within a fit. Independent fits never share sessions.
+`9a9a55af107e8cfd9f5aad8dc2c135553ce2531f`. RF a17 must be published first.
+Native fits use a shadow session by default: one canonical bank per fit
+(float32 values for exact forests, one-byte bin codes for binned Extra Trees)
+plus shuffled shadow columns, with no augmented float matrix or permutation
+maps. Exact Extra Trees, exact Random Forests and float32 binned Extra Trees
+share it. `BANKAI_BORUTA_EXACT_REFERENCE=1` selects the a7
+materialized path and `BANKAI_BORUTA_EXACT_SESSION=1` the a7 virtual session.
+Independent fits never share sessions.
 `diagnostics_` also reports `input_dtype` (received dtype),
 `native_input_dtype` (validated dtype on the native path, otherwise `None`),
 `input_conversion_bytes` (size of the converted input buffer, zero for a shared

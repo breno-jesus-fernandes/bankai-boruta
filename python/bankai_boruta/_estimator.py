@@ -149,9 +149,29 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             native_input_dtype=str(X.dtype) if native else None,
             input_conversion_bytes=conversion_bytes,
             permutation_dtype=permutation_dtype.name, permutation_bytes=0)
-        # Experimental opt-in until the AMD acceptance campaign passes.
-        session = None
-        if native and self._native_settings_['backend'] == 'exact' and os.environ.get('BANKAI_BORUTA_EXACT_SESSION') == '1':
+        # Native exact fits keep one canonical float32 bank and shuffle shadow
+        # values in place each round. The a7 materialized path (REFERENCE) and
+        # virtual session (SESSION) remain available for parity checks.
+        session = shadow_session = None
+        exact = native and self._native_settings_['backend'] == 'exact'
+        a7_path = self._native_settings_['extra_trees'] and (os.environ.get('BANKAI_BORUTA_EXACT_REFERENCE') == '1'
+                                                            or os.environ.get('BANKAI_BORUTA_EXACT_SESSION') == '1') if native else False
+        # Binned sessions bin float32 values once; float64 input keeps per-round
+        # binning so its edges come from the original float64 values.
+        if native and not a7_path and (exact or X.dtype == np.float32):
+            from . import _boruta_core
+            settings = self._native_settings_
+            prep_started = perf_counter()
+            binning = {} if exact else dict(bins=settings['bins'], binning_strategy=settings['binning_strategy'],
+                                            bin_sample_size=settings['bin_sample_size'], binning_seed=settings['binning_seed'])
+            shadow_session = _boruta_core.ShadowSession(X, encoded.astype(np.int64, copy=False), settings['threads'], **binning)
+            session_seconds = perf_counter() - prep_started
+            self.diagnostics_.update(session_creation_seconds=session_seconds,
+                real_bank_bytes=shadow_session.bank_bytes, real_bank_copied_bytes=shadow_session.bank_bytes,
+                storage_mode='shadow_session', shuffle_seconds=0., storage_seconds=0.,
+                shadow_buffer_bytes=0, materialized_bytes=0, materialized_copied_bytes=0)
+            self.diagnostics_['preparation_seconds'] += session_seconds
+        elif exact and os.environ.get('BANKAI_BORUTA_EXACT_SESSION') == '1':
             from . import _boruta_core
             prep_started = perf_counter()
             session = _boruta_core.ExactSession(X, encoded.astype(np.int64, copy=False))
@@ -173,7 +193,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         permutations = None
         augmented = None
         session_shuffle = session is not None and type(rng) is np.random.RandomState and permutation_dtype == np.uint32
-        row_indices = None if session_shuffle else np.arange(len(X), dtype=permutation_dtype)
+        row_indices = None if session_shuffle or shadow_session is not None else np.arange(len(X), dtype=permutation_dtype)
         self.diagnostics_['permutation_bytes'] = 0 if row_indices is None else row_indices.nbytes
         encoded = encoded.astype(np.int64, copy=False)
         self.n_iter_ = 0
@@ -189,7 +209,9 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             while len(sources) < 5:
                 sources = np.tile(sources, 2)
             prep_started = perf_counter()
-            if session_shuffle:
+            if shadow_session is not None:
+                shadow_seed = int(rng.randint(np.iinfo(np.int64).max, dtype=np.int64))
+            elif session_shuffle:
                 state = rng.get_state(legacy=False)
                 words, position = session.shuffle_uint32(state['state']['key'], state['state']['pos'], len(sources))
                 state['state']['key'] = words
@@ -205,7 +227,8 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                     _shuffle_permutation(rng, permutation)
             shuffle_seconds = perf_counter() - prep_started
             self.diagnostics_['preparation_seconds'] += shuffle_seconds
-            self.diagnostics_['shuffle_seconds'] = self.diagnostics_.get('shuffle_seconds', 0.) + shuffle_seconds
+            if shadow_session is None:
+                self.diagnostics_['shuffle_seconds'] = self.diagnostics_.get('shuffle_seconds', 0.) + shuffle_seconds
             seed = int(rng.randint(np.iinfo(np.int32).max))
             # A warm-start forest must not retain trees trained on old shadows.
             if params.get('warm_start', False):
@@ -222,7 +245,23 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                 if constraints.shape != (p,):
                     raise ValueError("monotonic_cst must have one value per original feature")
                 self.estimator_.set_params(monotonic_cst=np.r_[constraints[active], np.zeros(len(sources), dtype=int)])
-            if native:
+            if shadow_session is not None:
+                settings = self._native_settings_
+                scores, prep, train, metrics = shadow_session.gain_importances(
+                    active.astype(np.int64), sources.astype(np.int64), shadow_seed,
+                    int(self.estimator_.n_estimators), int(params['max_depth'] or 512),
+                    int(check_random_state(seed).randint(np.iinfo(np.int32).max)),
+                    int(params['extra_seed']), settings['threads'],
+                    self._native_max_features(len(active) + len(sources)),
+                    settings['criterion'], settings['min_samples_split'], settings['min_samples_leaf'],
+                    settings['min_leaf_weight'], settings['min_impurity_decrease'], settings['max_leaves'],
+                    settings['bootstrap'], settings['sample_size'], settings['extra_trees'])
+                for name in ('shuffle_seconds', 'storage_seconds'):
+                    self.diagnostics_[name] += metrics[name]
+                self.diagnostics_['shadow_buffer_bytes'] = max(self.diagnostics_['shadow_buffer_bytes'], int(metrics['shadow_buffer_bytes']))
+                self.diagnostics_['preparation_seconds'] += prep
+                self.diagnostics_['training_seconds'] += train
+            elif native:
                 from . import _boruta_core
                 settings = self._native_settings_
                 gain = _boruta_core.gain_importances if session is None else session.gain_importances
@@ -347,7 +386,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         # The native Rust path accepts estimator controls explicitly. Options
         # not represented at this boundary retain BankaiRF's Python fit path.
         defaults = BankaiRandomForestClassifier(extra_trees=True, extra_trees_backend='binned', max_bins=63, max_depth=6, n_jobs=-1).get_params()
-        allowed = {'n_estimators', 'random_state', 'max_depth', 'max_bins', 'extra_seed', 'n_jobs', 'max_features',
+        allowed = {'n_estimators', 'random_state', 'max_depth', 'max_bins', 'extra_seed', 'n_jobs', 'max_features', 'extra_trees',
                    'extra_trees_backend', 'criterion', 'min_samples_split', 'min_samples_leaf',
                    'min_weight_fraction_leaf', 'min_impurity_decrease', 'max_leaf_nodes',
                    'bootstrap', 'max_samples', 'binning_strategy', 'bin_sample_size', 'binning_seed'}
@@ -359,13 +398,18 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             return False, 'depth requires a15 parameter validation'
         if not isinstance(params['extra_seed'], Integral) or isinstance(params['extra_seed'], bool) or not 0 <= params['extra_seed'] < 2**64:
             return False, 'Extra Trees seed requires a15 parameter validation'
-        backend = params['extra_trees_backend']
+        extra_trees = params['extra_trees']
+        if not isinstance(extra_trees, bool):
+            return False, 'extra_trees requires a bool'
+        # Ordinary Random Forests share the exact shadow session; their
+        # histogram mode keeps the Python fit.
+        backend = params['extra_trees_backend'] if extra_trees else ('exact' if params['max_bins'] is None else None)
         if backend not in ('exact', 'binned'):
-            return False, 'Extra Trees backend outside native subset'
+            return False, 'Extra Trees backend outside native subset' if extra_trees else 'binned Random Forest uses the Python fit'
         if backend == 'exact' and params['max_bins'] is not None:
             return False, 'exact Extra Trees requires max_bins=None'
         if backend == 'exact' and X.dtype != np.float32:
-            return False, 'exact native Extra Trees currently requires float32 input'
+            return False, 'exact native forests currently require float32 input'
         if backend == 'binned' and (not isinstance(params['max_bins'], Integral) or isinstance(params['max_bins'], bool) or not 2 <= params['max_bins'] <= 255):
             return False, 'binned Extra Trees requires max_bins in [2, 255]'
         if params['criterion'] not in ('gini', 'entropy', 'log_loss'):
@@ -388,13 +432,14 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             binning_seed = base._resolve_binning_seed()
         except (TypeError, ValueError, OverflowError) as exc:
             return False, f'BankaiRF parameter validation requires Python fit: {exc}'
-        self._native_settings_ = dict(backend=backend, bins=max_bins, criterion=params['criterion'],
+        self._native_settings_ = dict(backend=backend, extra_trees=extra_trees, bins=max_bins, criterion=params['criterion'],
             min_samples_split=min_samples_split, min_samples_leaf=min_samples_leaf,
             min_leaf_weight=min_leaf_weight, min_impurity_decrease=min_impurity_decrease,
             max_leaves=max_leaves, bootstrap=params['bootstrap'], sample_size=sample_size,
             threads=threads, binning_strategy=binning_strategy, bin_sample_size=bin_sample_size,
             binning_seed=binning_seed, max_depth=max_depth, max_features=max_features)
-        return True, f'a15 {backend} Extra Trees gain; virtual shadows; estimator controls forwarded'
+        kind = f'{backend} Extra Trees' if extra_trees else 'exact Random Forest'
+        return True, f'a15 {kind} gain; virtual shadows; estimator controls forwarded'
 
     def _importances(self):
         getter = self.importance_getter

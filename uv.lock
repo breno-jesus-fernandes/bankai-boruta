@@ -14,7 +14,7 @@ resolution-markers = [
 
 [[package]]
 name = "bankai-boruta"
-version = "0.1.0a7"
+version = "0.1.0a8"
 source = { editable = "." }
 dependencies = [
     { name = "bankai-random-forest" },
@@ -45,7 +45,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bankai-random-forest", git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git?rev=da52a5bc0e2358911131d3b06d9cea65fc360505" },
+    { name = "bankai-random-forest", git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git?rev=9a9a55af107e8cfd9f5aad8dc2c135553ce2531f" },
     { name = "boruta", marker = "extra == 'test'", specifier = "==0.4.3" },
     { name = "greedyboruta", marker = "extra == 'test'", specifier = "==1.0.0" },
     { name = "numpy", specifier = ">=2.1" },
@@ -67,8 +67,8 @@ dev = [
 
 [[package]]
 name = "bankai-random-forest"
-version = "0.1.0a16"
-source = { git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git?rev=da52a5bc0e2358911131d3b06d9cea65fc360505#da52a5bc0e2358911131d3b06d9cea65fc360505" }
+version = "0.1.0a17"
+source = { git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git?rev=9a9a55af107e8cfd9f5aad8dc2c135553ce2531f#9a9a55af107e8cfd9f5aad8dc2c135553ce2531f" }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },

@@ -9,6 +9,14 @@ from bankai_random_forest import BankaiRandomForestClassifier
 from bankai_boruta import BankaiBoruta
 
 
+@pytest.fixture(autouse=True)
+def a7_reference(monkeypatch):
+    # Exact native/adapter parity is the a7 reference contract: its shadows are
+    # NumPy permutations. Shadow sessions are covered in test_shadow_session.py.
+    monkeypatch.setenv('BANKAI_BORUTA_EXACT_REFERENCE', '1')
+
+
+
 class Controlled(ClassifierMixin, BaseEstimator):
     def __init__(self, scores=(2., 0., 1.), random_state=None):
         self.scores = scores
