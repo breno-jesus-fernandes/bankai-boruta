@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0a10
+
+- Rewrite the README around the current release: native backends, the shadow
+  session, diagnostics and the AMD benchmark, without per-version history.
+  Links are absolute so they also work on PyPI.
+- Add project URLs (homepage, repository, issues, changelog) to the package
+  metadata, so PyPI links to the GitHub repository.
+
 ## 0.1.0a9
 
 - Train ordinary binned Random Forests (`extra_trees=False` with `max_bins`)

@@ -134,7 +134,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         rng = check_random_state(self.random_state)
         p = X.shape[1]
         self.max_iter_ = _greedy_rounds(p, self.alpha, self.bonferroni) if self.greedy else self.max_iter
-        # Native eligibility is deliberately conservative and checked against a15.
+        # Native eligibility is deliberately conservative and checked against BankaiRF's own validation.
         native, reason = self._native_eligibility(base, params, weights, X)
         if not native and X.dtype != np.float64:
             convert_started = perf_counter()
@@ -394,11 +394,11 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         if weights is not None or any(type(params[k]) is not type(v) or not np.array_equal(params[k], v) for k, v in defaults.items() if k not in allowed):
             return False, 'configuration outside the validated native subset'
         if self.n_estimators is None and (not isinstance(params['n_estimators'], Integral) or isinstance(params['n_estimators'], bool) or params['n_estimators'] < 1):
-            return False, 'tree count requires a15 parameter validation'
+            return False, 'tree count requires BankaiRF parameter validation'
         if params['max_depth'] is not None and (not isinstance(params['max_depth'], Integral) or isinstance(params['max_depth'], bool) or params['max_depth'] < 1):
-            return False, 'depth requires a15 parameter validation'
+            return False, 'depth requires BankaiRF parameter validation'
         if not isinstance(params['extra_seed'], Integral) or isinstance(params['extra_seed'], bool) or not 0 <= params['extra_seed'] < 2**64:
-            return False, 'Extra Trees seed requires a15 parameter validation'
+            return False, 'Extra Trees seed requires BankaiRF parameter validation'
         extra_trees = params['extra_trees']
         if not isinstance(extra_trees, bool):
             return False, 'extra_trees requires a bool'
@@ -440,7 +440,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             threads=threads, binning_strategy=binning_strategy, bin_sample_size=bin_sample_size,
             binning_seed=binning_seed, max_depth=max_depth, max_features=max_features)
         kind = f'{backend} Extra Trees' if extra_trees else f'{backend} Random Forest'
-        return True, f'a15 {kind} gain; virtual shadows; estimator controls forwarded'
+        return True, f'{kind} gain; native shadows; estimator controls forwarded'
 
     def _importances(self):
         getter = self.importance_getter

@@ -2,7 +2,7 @@
 import numpy as np
 from bankai_boruta import BankaiBoruta, __version__
 
-assert __version__ == '0.1.0a9'
+assert __version__ == '0.1.0a10'
 for dtype in (np.float32, np.float64):
     X = np.random.RandomState(42).normal(size=(80, 4)).astype(dtype)
     y = np.where(X[:, 0] > 0, 'positive', 'negative')

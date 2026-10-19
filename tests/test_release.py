@@ -10,7 +10,7 @@ import pytest
 from scripts.release_artifacts import SBOMS, project_release, verify_artifacts
 from scripts.publish_github_release import ensure_release
 
-VERSION = '0.1.0a9'
+VERSION = '0.1.0a10'
 PIN = 'bankai-random-forest==0.1.0a18'
 
 
@@ -65,7 +65,7 @@ def test_incomplete_or_mismatched_release_is_rejected(artifacts, corruption):
 
 def test_version_alignment(tmp_path):
     (tmp_path / 'pyproject.toml').write_text(f'[project]\nversion="{VERSION}"\ndependencies=["{PIN}"]\n')
-    (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.9"\n')
+    (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.10"\n')
     assert project_release(tmp_path) == (VERSION, PIN)
     (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.2"\n')
     with pytest.raises(ValueError, match='versions differ'):

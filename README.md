@@ -1,16 +1,11 @@
 # 🔥 Bankai Boruta
 
-The unreleased a7 candidate adds an opt-in [exact training session](docs/exact-session.md).
-The materialized path remains the default until AMD runtime/RSS acceptance passes.
-See [validation status](docs/exact-session-validation.md) and [changes](CHANGELOG.md).
-
-
 [![PyPI Latest Release](https://img.shields.io/pypi/v/bankai-boruta.svg)](https://pypi.org/project/bankai-boruta/)
 [![Package Status](https://img.shields.io/pypi/status/bankai-boruta.svg)](https://pypi.org/project/bankai-boruta/)
 [![Python versions](https://img.shields.io/pypi/pyversions/bankai-boruta.svg)](https://pypi.org/project/bankai-boruta/)
 [![uv managed](https://img.shields.io/badge/uv-managed-blue)](https://docs.astral.sh/uv/)
 [![Downloads](https://static.pepy.tech/badge/bankai-boruta)](https://pepy.tech/project/bankai-boruta)
-[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](COPYING)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](https://github.com/breno-jesus-fernandes/bankai-boruta/blob/main/COPYING)
 [![CI](https://github.com/breno-jesus-fernandes/bankai-boruta/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/breno-jesus-fernandes/bankai-boruta/actions/workflows/ci.yml)
 [![Dependency security](https://github.com/breno-jesus-fernandes/bankai-boruta/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/breno-jesus-fernandes/bankai-boruta/actions/workflows/security.yml)
 [![Coverage](https://codecov.io/gh/breno-jesus-fernandes/bankai-boruta/branch/main/graph/badge.svg)](https://codecov.io/gh/breno-jesus-fernandes/bankai-boruta)
@@ -18,21 +13,22 @@ See [validation status](docs/exact-session-validation.md) and [changes](CHANGELO
 [![PyPI deployment](https://img.shields.io/github/deployments/breno-jesus-fernandes/bankai-boruta/pypi?label=PyPI%20deployment)](https://github.com/breno-jesus-fernandes/bankai-boruta/deployments)
 [![GitHub stars](https://img.shields.io/github/stars/breno-jesus-fernandes/bankai-boruta.svg?style=social)](https://github.com/breno-jesus-fernandes/bankai-boruta)
 
-BankaiBoruta is a fast, scalable feature selection library built for large datasets.
+BankaiBoruta is a fast, memory-efficient implementation of the Boruta
+all-relevant feature selection algorithm for large tabular datasets.
 
-It combines the Boruta all-relevant selection algorithm with the native Rust
-backend of [Bankai Random Forest](https://github.com/breno-jesus-fernandes/bankai-random-forest).
-Classic Boruta is the default; `greedy=True` enables the fixed-round Greedy Boruta
-variant. BankaiRF supplies exact or binned Extra Trees, gain importance and
-parallel tree training through a scikit-learn-compatible selector. In
-0.1.0a6, the Rust selector forwards supported forest parameters from the
-caller.
+Boruta rounds run inside the native Rust engine of
+[Bankai Random Forest](https://github.com/breno-jesus-fernandes/bankai-random-forest):
+real columns are prepared once per fit, shadow columns are shuffled in parallel
+and trees train without building an augmented real-plus-shadow matrix. The
+decision rule is the same as BorutaPy's, behind a scikit-learn-compatible
+selector. Classic Boruta is the default; `greedy=True` enables the fixed-round
+Greedy Boruta variant.
 
 ⚠️ Bankai Boruta is in Alpha. Its API and fitted objects may change.
 
 ## Install
 
-Python 3.11 or newer is required. The release installation command is:
+Python 3.11 or newer is required:
 
 ```bash
 python -m pip install bankai-boruta
@@ -88,8 +84,7 @@ print(selection.sort_values("rank"))
 ```
 
 `transform` returns confirmed features only. `fit_transform(X, y)` combines the
-fit and transform steps. NumPy arrays and pandas DataFrames are supported;
-pandas inputs are converted to NumPy for training.
+fit and transform steps. NumPy arrays and pandas DataFrames are supported.
 
 ## Selector reference
 
@@ -119,23 +114,40 @@ selector = BankaiBoruta(
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `estimator` | `None` | A clonable classifier. `None` creates BankaiRF with the default configuration shown below. The supplied estimator is preserved. |
-| `n_estimators` | `"auto"` | BorutaPy's feature/depth heuristic for tree count. A positive integer overrides the count; `None` preserves the estimator's setting and supports classifiers without a tree-count parameter. |
+| `estimator` | `None` | A clonable classifier. `None` uses the default BankaiRF forest shown below. The supplied estimator is not modified. |
+| `n_estimators` | `"auto"` | BorutaPy's feature/depth heuristic for tree count. A positive integer overrides the count; `None` keeps the estimator's setting and supports classifiers without a tree-count parameter. |
 | `perc` | `100` | Shadow-importance percentile in `(0, 100]`. A real feature scores a hit only when its importance is strictly above this threshold. |
 | `alpha` | `0.05` | Significance level in `(0, 1)` for classic tests and the greedy round budget. |
 | `two_step` | `True` | Classic: combine Benjamini–Hochberg FDR across active features with Bonferroni across rounds. `False` uses Bonferroni across the original features. Ignored in greedy mode. |
-| `max_iter` | `100` | Classic iteration bound. Like BorutaPy 0.4.3, the loop uses iteration indices below this bound, allowing up to `max_iter - 1` rounds. Ignored in greedy mode. |
-| `random_state` | `None` | Integer seed, NumPy `RandomState`, or `None`. Controls shadows and per-round forest seeds without replacing constructor parameters. |
+| `max_iter` | `100` | Classic iteration bound. As in BorutaPy 0.4.3, the loop runs at most `max_iter - 1` rounds. Ignored in greedy mode. |
+| `random_state` | `None` | Integer seed, NumPy `RandomState`, or `None`. Controls shadows and per-round forest seeds. |
 | `verbose` | `0` | Non-negative verbosity level. Positive values print round progress and confirmed-feature counts. |
 | `early_stopping` | `False` | Classic: stop when the decisions remain unchanged beyond the patience limit. Ignored in greedy mode. |
 | `n_iter_no_change` | `20` | Positive patience limit for classic early stopping. |
 | `greedy` | `False` | Enable fixed-round, hit-once selection instead of classic binomial decisions. |
 | `bonferroni` | `True` | Greedy: include the original feature count in the round-budget correction. Classic correction is controlled by `two_step`. |
 | `importance_getter` | `"auto"` | Use `feature_importances_`, or coefficient magnitudes from `coef_` (L2 across classes). Also accepts a dotted attribute path or a callable returning one finite score per augmented feature. Larger scores mean greater importance. |
-| `store_history` | `False` | Retain per-round real importances and shadow thresholds after fitting. |
+| `store_history` | `False` | Keep per-round real importances and shadow thresholds after fitting. |
 
-The default classifier is configured as follows; remaining parameters follow
-BankaiRF a15 defaults:
+`fit(X, y, sample_weight=None)` accepts non-negative sample weights with a
+positive total. The fitted selector exposes:
+
+| Attribute or method | Meaning |
+| --- | --- |
+| `support_`, `get_support(indices=False)` | Confirmed-feature mask, or column indices with `indices=True`. |
+| `support_weak_` | Tentative features kept by the classic median rough fix; always false in greedy mode. |
+| `ranking_` | Classic: confirmed rank 1, weak rank 2, other features ordered by median importance ranks. Greedy: rank 1 or 2. |
+| `n_features_`, `n_features_in_` | Confirmed-feature count and original feature count. |
+| `feature_names_in_`, `get_feature_names_out()` | Original string column names when available, and selected output names. |
+| `n_iter_`, `max_iter_` | Completed rounds and effective iteration bound. |
+| `importance_history_`, `shadow_threshold_history_` | Available with `store_history=True`. Importance history starts with a zero row followed by one row per round. |
+| `diagnostics_` | Execution path and its reason, storage mode, timings and buffer sizes (see below). |
+
+The selector supports scikit-learn pipelines, cloning and parameter search.
+
+## Forests
+
+The default forest is binned Extra Trees with 63 bins:
 
 ```python
 from bankai_random_forest import BankaiRandomForestClassifier
@@ -150,159 +162,83 @@ forest = BankaiRandomForestClassifier(
 )
 ```
 
-Pass a classifier for full forest customization, then use nested parameters
-such as `estimator__max_depth` with `set_params` or parameter search. Weights and
-original training labels, including text labels, are passed to the Python
-adapter without re-encoding the labels supplied to the classifier.
+Pass any `BankaiRandomForestClassifier` to choose another backend. Nested
+parameters such as `estimator__max_depth` work with `set_params` and parameter
+search:
 
 ```python
-forest = BankaiRandomForestClassifier(
-    n_estimators=100,
-    max_depth=5,
-    class_weight="balanced",
-    n_jobs=-1,
-)
+forest = BankaiRandomForestClassifier(n_estimators=100, max_depth=5, n_jobs=-1)
 selector = BankaiBoruta(forest, n_estimators=None, random_state=42)
 selector.set_params(estimator__max_depth=7)
 selector.fit(X_train, y_train)
 ```
 
-### Native forest controls
+All four BankaiRF backends run natively:
 
-The native selector forwards the supplied `BankaiRandomForestClassifier`
-settings for the supported native subset. Both exact and binned Extra Trees
-are available. Exact native selection currently requires float32 input; exact
-float64 input uses the adapter so BankaiRF can preserve its float64 semantics.
-This example runs the exact backend with custom bootstrap sampling, criterion,
-and tree constraints:
+| Backend | Forest settings | Native input |
+| --- | --- | --- |
+| Exact Extra Trees | `extra_trees=True`, `extra_trees_backend="exact"`, `max_bins=None` | float32 |
+| Binned Extra Trees | `extra_trees=True`, `extra_trees_backend="binned"`, `max_bins` in 2–255 | float32 or float64 |
+| Exact Random Forest | `extra_trees=False`, `max_bins=None` | float32 |
+| Binned Random Forest | `extra_trees=False`, `max_bins` in 2–255 | float32 or float64 |
+
+On the native path, one shadow session serves the whole fit. Real columns are
+stored once, as float32 values for exact forests or as one-byte bin codes for
+binned forests, and every round shuffles shadow columns in parallel inside that
+session. Float64 binned input is binned again each round so its edges come from
+the original float64 values. Exact forests with float64 input use the Python
+adapter, which preserves BankaiRF's float64 split semantics; convert to float32
+to use the native path.
+
+The native path forwards `n_estimators`, `max_depth`, `max_features`, `n_jobs`,
+`random_state`, `extra_seed`, `criterion`, `min_samples_split`,
+`min_samples_leaf`, `min_weight_fraction_leaf`, `min_impurity_decrease`,
+`max_leaf_nodes`, `bootstrap`, `max_samples`, `max_bins`, `binning_strategy`,
+`bin_sample_size` and `binning_seed`. `max_features` is resolved against each
+round's current real-plus-shadow width. Gain importance is normalized per tree
+for Extra Trees and over the forest for Random Forests.
+
+Other configurations use the Python adapter, which fits the estimator on a
+materialized real-plus-shadow matrix each round. That includes sample or class
+weights, other importance types, `warm_start`, OOB scoring, monotonic
+constraints, custom importance getters and non-BankaiRF classifiers. Both paths
+apply the same decision rule.
 
 ```python
-forest = BankaiRandomForestClassifier(
-    n_estimators=150, max_depth=8, max_bins=None,
-    extra_trees=True, extra_trees_backend="exact", importance_type="gain",
-    criterion="entropy", min_samples_split=4, min_samples_leaf=2,
-    max_leaf_nodes=128, max_samples=0.8, bootstrap=True,
-    n_jobs=4, max_features=0.15,
-)
-selector = BankaiBoruta(forest, n_estimators=150, random_state=42)
+selector = BankaiBoruta(forest, n_estimators=100, random_state=42)
 selector.fit(X_train.astype("float32"), y_train)
-assert selector.diagnostics_["path"] == "rust"
+print(selector.diagnostics_["path"], selector.diagnostics_["reason"])
+print(selector.diagnostics_["storage_mode"])  # "shadow_session" on the native path
 ```
 
-Worker and feature controls use the pinned forest's validation and resolution rules:
-`n_jobs=None` means one worker, positive values specify the worker count, and
-negative values resolve relative to the CPU count. `max_features` accepts
-`"sqrt"`, `"log2"`, a positive integer, a fraction in `(0, 1]`, or `None`.
-Feature counts resolve against each round's current real-plus-shadow width,
-including after Classic rejects columns, and fractional counts are floored
-with a minimum of one. Integer counts must fit that round's width. The resolved
-worker count controls native preparation and forest training; tree parallelism
-is capped by the number of trees.
+`diagnostics_` reports the path (`"rust"` or `"python"`) and the reason for it,
+the storage mode, preparation, training and shuffle times, and explicit buffer
+sizes such as `real_bank_bytes`, `permutation_bytes`, `input_conversion_bytes`
+and `copied_bytes` (augmented-matrix writes on the adapter path). These are
+buffer sizes, not RSS.
 
-The Rust path also forwards `criterion`, `min_samples_split`,
-`min_samples_leaf`, `min_weight_fraction_leaf`, `min_impurity_decrease`,
-`max_leaf_nodes`, `bootstrap`, `max_samples`, and the binned backend's
-`binning_strategy`, `bin_sample_size`, and `binning_seed`. Parameters that are
-not represented by this native boundary (including sample/class weights,
-`warm_start`, OOB scoring, and monotonic constraints) use the Python adapter.
-To benchmark the materialized Python adapter with the same forest, set
-`importance_getter="feature_importances_"` and assert
-`selector.diagnostics_["path"] == "python"`. Native shadow access avoids the
-Python augmented matrix; the default exact forest still materializes a float32
-real-plus-shadow matrix each round. The opt-in [a7 session](docs/exact-session.md)
-removes that internal matrix. Native exact fits retain float32; public float64
-exact fits preserve the float64 adapter. Native binned inputs retain float32 or
-float64. Other inputs and adapter inputs use float64. Explicit permutations use
-uint32 through 2**32 rows, otherwise int64 within platform addressing limits.
-Binning and training statistics remain unchanged.
+## Performance
 
-`fit(X, y, sample_weight=None)` accepts non-negative sample weights with positive
-total weight. Classic selection counts hits and uses binomial tests; its final
-median comparison marks surviving tentative features as weak. The fitted
-selector exposes:
+Medians over five seeds on an AWS c7a.4xlarge (16 AMD cores, 16 threads),
+against BorutaPy 0.4.3 with scikit-learn `ExtraTreesClassifier` and the same
+forest settings. Every method ran up to 40 rounds with the same decision rule.
+RSS is the fit's peak increase over the loaded data.
 
-| Attribute or method | Meaning |
-| --- | --- |
-| `support_`, `get_support(indices=False)` | Confirmed-feature mask, or column indices with `indices=True`. |
-| `support_weak_` | Tentative features retained by the classic median rough fix; always false in greedy mode. |
-| `ranking_` | Classic: confirmed rank 1, weak rank 2, other features ordered by median importance ranks. Other ranks start at 2 when there are no weak features, or 3 otherwise. Greedy: rank 1 or 2. |
-| `n_features_`, `n_features_in_` | Confirmed-feature count and original feature count. |
-| `feature_names_in_`, `get_feature_names_out()` | Original string column names when available, and selected output names. |
-| `n_iter_`, `max_iter_` | Completed rounds and effective iteration bound. Constructor parameters remain unchanged during fit. |
-| `importance_history_`, `shadow_threshold_history_` | Available with `store_history=True`. Importance history starts with a zero row followed by one row per round. |
-| `diagnostics_` | Execution path, fallback reason, timing, augmented float-copy bytes and native storage-rebuild count. |
+| Profile (train n × p) | Bankai exact | Bankai binned | BorutaPy + ExtraTrees |
+| --- | ---: | ---: | ---: |
+| Industrial 200k × 500 | 22.5 s / 1,283 MiB | 15.6 s / 667 MiB | 37.5 s / 1,817 MiB |
+| Credit 300k × 300 | 20.8 s / 1,474 MiB | 16.1 s / 819 MiB | 45.7 s / 1,806 MiB |
+| Cybersecurity 400k × 150 | 54.8 s / 1,395 MiB | 42.7 s / 908 MiB | 107.5 s / 1,472 MiB |
+| Bioinformatics 50k × 2000 | 135.6 s / 982 MiB | 64.0 s / 450 MiB | 145.1 s / 1,608 MiB |
 
-The selector supports scikit-learn pipelines and cloning. A fresh clone is used
-for each round when a supplied classifier enables `warm_start`, preventing trees
-from retaining previous shadows. `estimator_` contains cloned configuration on
-the Rust path and the last round's fitted classifier on the adapter path.
-
-### BankaiRF backend and performance foundations
-
-The backend combines several sources of computational efficiency:
-
-| Foundation | Role in Bankai Boruta |
-| --- | --- |
-| [Greedy Boruta](https://github.com/Nicolas-Vana/GreedyBorutaPy) | Optional fixed-round selection confirms a feature after its first hit, replacing repeated binomial confirmation tests with a bounded campaign. |
-| [Extra Trees](https://doi.org/10.1007/s10994-006-6226-1) | Random cut points reduce exhaustive threshold search in the forest. BankaiRF's default here combines Extra Trees with bootstrap sampling and per-tree gain normalization. |
-| [LightGBM histogram methods](https://lightgbm.readthedocs.io/en/stable/Features.html#optimization-in-speed-and-memory-usage) | Discretization replaces continuous values with compact bins and supports per-bin statistics. BankaiRF a15's binned Extra Trees stores bins by column and uses a single statistics pass for binary splits; this is its own forest backend. |
-| [BankaiRF a15 Rust engine](https://github.com/breno-jesus-fernandes/bankai-random-forest/tree/caa46c22ef93434cd87319490513e877d4378564) | Parallel trees train from virtual access at the Boruta boundary. The default exact engine still materializes internal float32 columns; the opt-in a7 session avoids that matrix. Rounds remain sequential. |
-
-The scientific papers and author article are linked under [References](#references).
-The LightGBM reference describes binning and histogram principles; the a15
-implementation determines the actual forest storage and split behavior.
-The default binned Extra Trees path uses its own column-bin statistics rather
-than the global histogram caches of BankaiRF's ordinary Random Forest path.
-
-Rust execution is selected automatically for supported exact or binned Extra
-Trees and Random Forest gain configurations. Supported forest settings are forwarded into the
-native fit; unsupported settings, weights, monotonic constraints and custom
-getters use the Python adapter, preserving estimator parameters and forest
-validation. Shadow monotonic constraints are always zero. `diagnostics_`
-records the path and its reason.
-
-The a9 release aligns Python and Rust dependencies to BankaiRF **0.1.0a18**;
-the immutable Rust/development Python revision is
-`22f9a4c81ec1c437d8e85fb3648e5f6202a27d67`. RF a18 must be published first.
-Native fits use a shadow session by default: one canonical bank per fit
-(float32 values for exact forests, one-byte bin codes for binned forests)
-plus shuffled shadow columns, with no augmented float matrix or permutation
-maps. Exact and float32 binned Extra Trees and Random Forests share it; float64
-binned input keeps per-round binning on the native path. `BANKAI_BORUTA_EXACT_REFERENCE=1` selects the a7
-materialized path and `BANKAI_BORUTA_EXACT_SESSION=1` the a7 virtual session.
-Independent fits never share sessions.
-`diagnostics_` also reports `input_dtype` (received dtype),
-`native_input_dtype` (validated dtype on the native path, otherwise `None`),
-`input_conversion_bytes` (size of the converted input buffer, zero for a shared
-NumPy input), `permutation_dtype`, and `permutation_bytes` (largest per-round
-size of permutations plus the reusable row-index buffer during the fit).
-These are explicit buffer sizes, not RSS or total allocations. The existing
-`copied_bytes` remains cumulative augmented float-matrix writes across rounds;
-it excludes input conversions and permutations. For a 100,000 × 500 float32
-array, a5 removes 400,000,000 input-conversion bytes and 200,400,000 permutation
-bytes versus a4: approximately 572.6 MiB. RSS and timings require measurement.
-Only local results are covered by the [a5 report](docs/validation-a5-local.md);
-the four-profile Linux campaign remains pending.
-
-`copied_bytes=0` covers only Python augmented-matrix writes. Internal exact
-materializations, bin/layout buffers and caches remain part of preparation and
-measured RSS. The [new diagnostics](docs/exact-session.md#diagnostics) distinguish
-live buffer capacity from cumulative copy volume; none is a total RSS estimate.
-
-See the [reproducible validation report](docs/validation.md) for Rust/adapter
-importance parity, reference-algorithm comparisons, timing, peak memory, recall
-and false positives. The measurements describe specific datasets and seeds;
-actual speed and selection quality depend on the workload and configuration.
-
-### Migration from a2
-
-`estimator` is now the first argument. Configure forest parameters on that
-classifier instead of the removed selector arguments `forest_backend`,
-`pruning`, `importance`, `importance_scale`, `input_mode`, `max_features`,
-`max_depth`, `n_jobs`, and `max_bins`. `greedy=True` enables hit-once selection;
-the former aggressive pruning rule is a different algorithm. The `bankai-rf`,
-`polars`, and `arrow-test` extras were removed. This release supports NumPy and
-pandas; Polars and Arrow integration is outside its scope.
+Both Bankai backends were faster and used less memory than BorutaPy in all 20
+profile × seed pairs. No method confirmed an irrelevant feature. In Industrial,
+Credit and Bioinformatics, Bankai selected the same sets as BorutaPy. In
+Cybersecurity, every method reached the round limit and borderline features
+varied: median recall was 0.67 for Bankai exact, 0.65 for BorutaPy and 0.62
+for Bankai binned. These are synthetic datasets; results depend on the workload.
+Protocol, raw results and the LightGBM comparison are in the
+[benchmark repository](https://github.com/breno-jesus-fernandes/bankai-boruta-benchmark/tree/main/verification/native-shadow-amd-20261019).
 
 ## Greedy mode
 
@@ -317,49 +253,42 @@ X_selected = selector.fit_transform(X_train, y_train)
 print(f"Rounds: {selector.n_iter_}; effective budget: {selector.max_iter_}")
 ```
 
-Greedy retains every original feature throughout the campaign. With `p` original
+Greedy keeps every original feature throughout the campaign. With `p` original
 features, it runs `K = ceil(log2(p / alpha))` rounds when `bonferroni=True`, or
-`K = ceil(log2(1 / alpha))` otherwise. The exact floating-point ratio is used to
-compute the ceiling safely at power-of-two boundaries and very small alpha.
+`K = ceil(log2(1 / alpha))` otherwise.
 
 A feature is confirmed after at least one importance above the shadow
 percentile. Features with no hits are rejected at completion. `support_weak_`
 is always false and `ranking_` uses 1 for confirmed and 2 for rejected features.
 `max_iter`, `two_step`, `early_stopping`, and `n_iter_no_change` do not control
-this mode. Greedy relaxes confirmation and can select more noise; the validation
-report measures that tradeoff without assuming a universal recall advantage.
+this mode. Greedy relaxes confirmation and can select more noise.
 
 ## Development
 
 Local builds need Git, Python 3.11+, stable Rust, and
-[uv](https://docs.astral.sh/uv/getting-started/installation/). Install Xcode command-line
-tools on macOS or the Rust MSVC build tools on Windows.
+[uv](https://docs.astral.sh/uv/getting-started/installation/). Install the Xcode
+command-line tools on macOS or the Rust MSVC build tools on Windows.
 
 ```bash
 git clone https://github.com/breno-jesus-fernandes/bankai-boruta.git
 cd bankai-boruta
-git switch perf/exact-session-a7
 uv python install 3.11
 uv sync --locked --no-install-project --extra test
 uv run --no-sync maturin develop --release --locked
 ```
 
-Run the Python and Rust checks, then reproduce the benchmark campaign as needed:
+Run the Python and Rust tests:
 
 ```bash
 uv run --no-sync pytest -q
 uv run --no-sync cargo test --workspace --locked
-uv run --no-sync python benchmarks/validate_a3.py
-uv run --no-sync python benchmarks/summarize_a3.py
 ```
 
-Both lockfiles are committed. CI tests Python 3.11–3.14 and builds ABI3 wheels
-for Linux x86_64/ARM64, macOS x86_64/ARM64 and Windows x86_64, with installed-wheel
-smoke tests. The scheduled BankaiRF release check reports upstream versions;
-upgrades must align both dependency pins and pass compatibility/performance checks.
-
-Read the [development guide](docs/development.md),
-[contribution guide](CONTRIBUTING.md), and [Code of Conduct](CODE_OF_CONDUCT.md).
+CI tests Python 3.11–3.14 and builds ABI3 wheels for Linux x86_64/ARM64, macOS
+x86_64/ARM64 and Windows x86_64. Merging a new version to `main` publishes it
+to PyPI. See the [development guide](https://github.com/breno-jesus-fernandes/bankai-boruta/blob/main/docs/development.md) for the BankaiRF pin
+and release order, the [changelog](https://github.com/breno-jesus-fernandes/bankai-boruta/blob/main/CHANGELOG.md) for release history, the
+[contribution guide](https://github.com/breno-jesus-fernandes/bankai-boruta/blob/main/CONTRIBUTING.md) and the [Code of Conduct](https://github.com/breno-jesus-fernandes/bankai-boruta/blob/main/CODE_OF_CONDUCT.md).
 
 ## References
 
@@ -370,6 +299,6 @@ Read the [development guide](docs/development.md),
 
 ## License
 
-Bankai Boruta is distributed under [GPL-3.0-or-later](COPYING). Its BankaiRF
+Bankai Boruta is distributed under [GPL-3.0-or-later](https://github.com/breno-jesus-fernandes/bankai-boruta/blob/main/COPYING). Its BankaiRF
 Rust backend includes the maintained GPL-3.0-or-later
-[XRF fork](https://github.com/breno-jesus-fernandes/bankai-random-forest/blob/v0.1.0a15/crates/xrf/UPSTREAM.md).
+[XRF fork](https://github.com/breno-jesus-fernandes/bankai-random-forest/blob/master/crates/xrf/UPSTREAM.md).

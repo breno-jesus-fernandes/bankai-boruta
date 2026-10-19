@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "bankai-boruta"
-version = "0.1.0a9"
+version = "0.1.0a10"
 description = "Native Rust Boruta feature selection for Python."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -16,6 +16,12 @@ dependencies = [
     "scipy>=1.13",
     "bankai-random-forest==0.1.0a18",
 ]
+
+[project.urls]
+Homepage = "https://github.com/breno-jesus-fernandes/bankai-boruta"
+Repository = "https://github.com/breno-jesus-fernandes/bankai-boruta"
+Issues = "https://github.com/breno-jesus-fernandes/bankai-boruta/issues"
+Changelog = "https://github.com/breno-jesus-fernandes/bankai-boruta/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 test = ["pytest>=8.3", "pytest-benchmark>=5.1", "pandas>=2.2", "Boruta==0.4.3", "greedyboruta==1.0.0", "psutil>=6"]
