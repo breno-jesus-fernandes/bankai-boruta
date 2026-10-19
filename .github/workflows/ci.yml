@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publish reviewed artifacts to PyPI (explicit release authorization required)'
+        description: 'Publish to PyPI (merges to main publish new versions automatically)'
         type: boolean
         default: false
 
@@ -331,7 +331,7 @@ jobs:
   publish:
     name: Publish release to PyPI
     needs: [release_gate, distributions, attest]
-    if: github.event_name == 'workflow_dispatch' && inputs.publish && needs.release_gate.outputs.changed == 'true'
+    if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)) && needs.release_gate.outputs.changed == 'true'
     concurrency:
       group: publish-${{ needs.release_gate.outputs.version }}
       cancel-in-progress: false
@@ -356,8 +356,9 @@ jobs:
 
   github_release:
     name: Create GitHub release
-    needs: [distributions, attest]
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    # Same run and artifacts as the PyPI upload, so release assets match PyPI.
+    needs: [release_gate, distributions, attest, publish]
+    if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)) && needs.release_gate.outputs.changed == 'true'
     concurrency:
       group: github-release-${{ github.ref }}
       cancel-in-progress: false

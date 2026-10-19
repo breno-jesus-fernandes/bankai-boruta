@@ -14,6 +14,10 @@
   counts because trees finish in a thread-dependent order; they are now
   identical for any `n_jobs`, as Extra Trees importances already were.
 - Require BankaiRF 0.1.0a18, whose histograms read column-major codes.
+- Publish to PyPI when a PR is merged into `main` and its version is not on
+  PyPI yet. The GitHub release now comes from the same run and artifacts as
+  the PyPI upload. A manual dispatch with `publish=true` remains available to
+  retry.
 
 ## 0.1.0a8
 
