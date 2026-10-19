@@ -35,6 +35,7 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
     binning_strategy: &str,
     bin_sample_size: usize,
     binning_seed: u64,
+    extra_trees: bool,
     value: F,
 ) -> Result<GainResult, String> {
     gain_importances_with_storage(
@@ -59,6 +60,7 @@ pub fn gain_importances<F: Fn(usize, usize) -> f64 + Sync>(
         binning_strategy,
         bin_sample_size,
         binning_seed,
+        extra_trees,
         value,
         None,
     )
@@ -87,6 +89,7 @@ pub fn gain_importances_with_storage<F: Fn(usize, usize) -> f64 + Sync>(
     binning_strategy: &str,
     bin_sample_size: usize,
     binning_seed: u64,
+    extra_trees: bool,
     value: F,
     virtual_storage: Option<ExactVirtualColumns>,
 ) -> Result<GainResult, String> {
@@ -144,7 +147,7 @@ pub fn gain_importances_with_storage<F: Fn(usize, usize) -> f64 + Sync>(
             binning_seed,
             value,
         )?
-        .with_extra_trees(true, extra_seed)
+        .with_extra_trees(extra_trees, extra_seed)
         .with_float32_column_storage(threads)
         .with_histogram_threads(1)
         .with_binned_extra_trees(threads)
@@ -159,7 +162,7 @@ pub fn gain_importances_with_storage<F: Fn(usize, usize) -> f64 + Sync>(
             min_samples_leaf,
             min_impurity_decrease,
         )?
-        .with_extra_trees(true, extra_seed)
+        .with_extra_trees(extra_trees, extra_seed)
         .with_histogram_threads(1)
     } else {
         DenseInput::training_exact_f32_with_accessor(
@@ -176,7 +179,7 @@ pub fn gain_importances_with_storage<F: Fn(usize, usize) -> f64 + Sync>(
             threads,
             |row, column| value(row, column) as f32,
         )?
-        .with_extra_trees(true, extra_seed)
+        .with_extra_trees(extra_trees, extra_seed)
         .with_histogram_threads(1)
     };
     let input = input.with_profiling(profile.clone());
@@ -197,7 +200,7 @@ pub fn gain_importances_with_storage<F: Fn(usize, usize) -> f64 + Sync>(
         sample_size,
     );
     Ok(GainResult {
-        importances: tree_normalized_gains(&forest, columns),
+        importances: normalized_gains(&forest, columns, extra_trees),
         preparation_seconds,
         training_seconds: start.elapsed().as_secs_f64(),
         feature_workspace_peak_bytes_per_worker: profile
@@ -344,8 +347,9 @@ fn tree_normalized_gains(forest: &Forest<DenseInput>, columns: usize) -> Vec<f64
     result
 }
 
-/// Binned Extra Trees over column-major codes whose columns are real bank
-/// columns followed by shuffled shadow codes, each with its source's edges.
+/// Binned Extra Trees or Random Forest over column-major codes whose columns
+/// are real bank columns followed by shuffled shadow codes, each with its
+/// source's edges.
 #[allow(clippy::too_many_arguments)]
 pub fn gain_importances_binned(
     rows: usize,
@@ -367,6 +371,7 @@ pub fn gain_importances_binned(
     max_leaves: usize,
     bootstrap: bool,
     sample_size: Option<usize>,
+    extra_trees: bool,
 ) -> Result<GainResult, String> {
     let start = Instant::now();
     let columns = edges.len();
@@ -388,7 +393,7 @@ pub fn gain_importances_binned(
         rows, codes, edges, labels, max_label + 1, min_leaf_weight, criterion,
         min_samples_split, min_samples_leaf, min_impurity_decrease, max_bins,
     )?
-    .with_extra_trees(true, extra_seed)
+    .with_extra_trees(extra_trees, extra_seed)
     .with_histogram_threads(1);
     let preparation_seconds = start.elapsed().as_secs_f64();
     let start = Instant::now();
@@ -397,21 +402,37 @@ pub fn gain_importances_binned(
         threads.min(trees), depth, max_leaves, bootstrap, sample_size,
     );
     Ok(GainResult {
-        importances: tree_normalized_gains(&forest, columns),
+        importances: normalized_gains(&forest, columns, extra_trees),
         preparation_seconds,
         training_seconds: start.elapsed().as_secs_f64(),
         feature_workspace_peak_bytes_per_worker: 0.,
     })
 }
 
-/// Global gain shares, as BankaiRF reports for ordinary Random Forests.
+/// BankaiRF's `gain` semantics: per-tree normalized for Extra Trees,
+/// forest-normalized for ordinary Random Forests.
+fn normalized_gains(forest: &Forest<DenseInput>, columns: usize, extra_trees: bool) -> Vec<f64> {
+    if extra_trees { tree_normalized_gains(forest, columns) } else { forest_normalized_gains(forest, columns) }
+}
+
+/// Global gain shares, as BankaiRF reports for ordinary Random Forests. Tree
+/// completion order depends on the worker count, so per-tree gains are summed
+/// in a canonical order to keep importances identical for any thread count.
 fn forest_normalized_gains(forest: &Forest<DenseInput>, columns: usize) -> Vec<f64> {
-    let mut result = vec![0.; columns];
-    for tree in forest.tree_refs() {
+    let mut per_tree: Vec<Vec<f64>> = forest.tree_refs().map(|tree| {
+        let mut gains = vec![0.; columns];
         for node in &tree.nodes {
             if let xrf::Node::Branch(feature, _, score, _, _, _) = node {
-                result[*feature] += score.abs();
+                gains[*feature] += score.abs();
             }
+        }
+        gains
+    }).collect();
+    per_tree.sort_unstable_by(|a, b| a.iter().map(|v| v.to_bits()).cmp(b.iter().map(|v| v.to_bits())));
+    let mut result = vec![0.; columns];
+    for gains in &per_tree {
+        for (sum, gain) in result.iter_mut().zip(gains) {
+            *sum += gain;
         }
     }
     let total: f64 = result.iter().sum();
@@ -484,7 +505,7 @@ pub fn gain_importances_columns(
         &input, trees, max_features, true, false, false, seed,
         threads.min(trees), depth, max_leaves, bootstrap, sample_size,
     );
-    let importances = if extra_trees { tree_normalized_gains(&forest, columns) } else { forest_normalized_gains(&forest, columns) };
+    let importances = normalized_gains(&forest, columns, extra_trees);
     Ok(GainResult {
         importances,
         preparation_seconds,
@@ -520,6 +541,7 @@ mod tests {
                 "exact_sort",
                 200000,
                 6,
+                true,
                 |row, column| (row + column) as f64,
             );
             assert!(matches!(result, Err(message) if message == "invalid training settings"));

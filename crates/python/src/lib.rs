@@ -58,6 +58,7 @@ fn gain_typed<V: Value, I: Index>(
     binning_strategy: &str,
     bin_sample_size: usize,
     binning_seed: u64,
+    extra_trees: bool,
 ) -> PyResult<(Vec<f64>, f64, f64)> {
     let preparation_start = std::time::Instant::now();
     let x = x.as_array();
@@ -151,6 +152,7 @@ fn gain_typed<V: Value, I: Index>(
         binning_strategy,
         bin_sample_size,
         binning_seed,
+        extra_trees,
         |row, col| value(order[row], col),
     )
     .map_err(PyValueError::new_err)?;
@@ -163,7 +165,7 @@ fn gain_typed<V: Value, I: Index>(
 
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
-#[pyo3(signature = (x, y, active, sources, permutations, trees, depth, seed, bins, extra_seed, threads, max_features, backend="binned", criterion="gini", min_samples_split=2, min_samples_leaf=1, min_leaf_weight=0.0, min_impurity_decrease=0.0, max_leaves=None, bootstrap=true, sample_size=None, binning_strategy="exact_sort", bin_sample_size=200000, binning_seed=6))]
+#[pyo3(signature = (x, y, active, sources, permutations, trees, depth, seed, bins, extra_seed, threads, max_features, backend="binned", criterion="gini", min_samples_split=2, min_samples_leaf=1, min_leaf_weight=0.0, min_impurity_decrease=0.0, max_leaves=None, bootstrap=true, sample_size=None, binning_strategy="exact_sort", bin_sample_size=200000, binning_seed=6, extra_trees=true))]
 fn gain_importances(
     x: &Bound<'_, PyAny>,
     y: PyReadonlyArray1<'_, i64>,
@@ -189,6 +191,7 @@ fn gain_importances(
     binning_strategy: &str,
     bin_sample_size: usize,
     binning_seed: u64,
+    extra_trees: bool,
 ) -> PyResult<(Vec<f64>, f64, f64)> {
     macro_rules! dispatch {
         ($values:ty, $indices:ty) => {
@@ -221,6 +224,7 @@ fn gain_importances(
                     binning_strategy,
                     bin_sample_size,
                     binning_seed,
+                    extra_trees,
                 );
             }
         };
@@ -521,6 +525,7 @@ impl ExactSession {
             binning_strategy,
             bin_sample_size,
             binning_seed,
+            true,
             |_, _| unreachable!("virtual storage never materializes"),
             Some(storage),
         )
@@ -741,9 +746,6 @@ impl ShadowSession {
             return Err(PyValueError::new_err("invalid training arrays or settings"));
         }
         if let Some(binned) = &self.binned {
-            if !extra_trees {
-                return Err(PyValueError::new_err("binned sessions train Extra Trees"));
-            }
             let rows = self.rows;
             let mut codes = Vec::with_capacity((active.len() + sources.len()) * rows);
             for &c in &active {
@@ -757,7 +759,7 @@ impl ShadowSession {
             let result = boruta_core::gain_importances_binned(
                 rows, codes, edges, self.labels.clone(), binned.max_bins, trees, depth, seed, extra_seed, threads,
                 max_features, criterion, min_samples_split, min_samples_leaf, min_leaf_weight,
-                min_impurity_decrease, max_leaves.unwrap_or(usize::MAX), bootstrap, sample_size,
+                min_impurity_decrease, max_leaves.unwrap_or(usize::MAX), bootstrap, sample_size, extra_trees,
             )
             .map_err(PyValueError::new_err)?;
             let metrics = [

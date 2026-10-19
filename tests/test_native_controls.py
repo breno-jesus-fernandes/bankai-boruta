@@ -77,9 +77,9 @@ def test_resolved_controls_cross_native_boundary(monkeypatch, jobs, expected):
     calls = []
     original = _boruta_core.gain_importances
 
-    def record(*args):
+    def record(*args, **kwargs):
         calls.append((args[10], args[11]))
-        return original(*args)
+        return original(*args, **kwargs)
 
     monkeypatch.setattr(_boruta_core, 'gain_importances', record)
     X = np.random.default_rng(1).normal(size=(24, 6))
@@ -108,6 +108,42 @@ def test_native_and_adapter_parity_for_each_extra_trees_backend(monkeypatch, bac
     assert native.diagnostics_['path'] == 'rust'
     np.testing.assert_allclose(native.importance_history_, adapter.importance_history_, atol=1e-14, equal_nan=True)
     np.testing.assert_array_equal(native.support_, adapter.support_)
+
+
+@pytest.mark.parametrize('extra_trees,dtype', [(True, np.float64), (False, np.float64)])
+@pytest.mark.parametrize('bootstrap', [True, False])
+def test_binned_native_and_adapter_parity_for_each_forest(extra_trees, dtype, bootstrap):
+    # Float64 binned input keeps per-round binning over NumPy-permuted shadows,
+    # so the native path must match BankaiRF's own fit importance for importance.
+    X = np.random.default_rng(10).normal(size=(120, 12)).astype(dtype)
+    y = (X[:, 0] + X[:, 1] > 0).astype(int)
+    base = BankaiRandomForestClassifier(n_estimators=6, max_depth=4, max_bins=31, n_jobs=2,
+        extra_trees=extra_trees, extra_trees_backend='binned' if extra_trees else 'exact', bootstrap=bootstrap)
+    kwargs = dict(n_estimators=6, max_iter=5, random_state=42, store_history=True)
+    native = BankaiBoruta(base, **kwargs).fit(X, y)
+    adapter = BankaiBoruta(base, importance_getter='feature_importances_', **kwargs).fit(X, y)
+    assert native.diagnostics_['path'] == 'rust'
+    assert native.diagnostics_['storage_mode'] == 'materialized'
+    assert ('binned Extra Trees' if extra_trees else 'binned Random Forest') in native.diagnostics_['reason']
+    np.testing.assert_allclose(native.importance_history_, adapter.importance_history_, atol=1e-14, equal_nan=True)
+    np.testing.assert_array_equal(native.support_, adapter.support_)
+    assert native.n_iter_ == adapter.n_iter_
+
+
+@pytest.mark.parametrize('extra_trees', [True, False])
+def test_binned_native_forwards_custom_bankairf_controls(extra_trees):
+    X = np.random.default_rng(12).normal(size=(96, 10))
+    y = (X[:, 0] > 0).astype(int)
+    base = BankaiRandomForestClassifier(n_estimators=5, max_depth=4, max_bins=31,
+        n_jobs=2, criterion='entropy', min_samples_split=4, min_samples_leaf=2,
+        min_weight_fraction_leaf=.01, min_impurity_decrease=.001, max_leaf_nodes=9,
+        max_samples=.8, bootstrap=True, binning_strategy='sampled_sort', bin_sample_size=80,
+        binning_seed=27, extra_trees=extra_trees, extra_trees_backend='binned' if extra_trees else 'exact')
+    options = dict(n_estimators=5, max_iter=3, random_state=11, store_history=True)
+    selector = BankaiBoruta(base, **options).fit(X, y)
+    adapter = BankaiBoruta(base, importance_getter='feature_importances_', **options).fit(X, y)
+    assert selector.diagnostics_['path'] == 'rust'
+    np.testing.assert_allclose(selector.importance_history_, adapter.importance_history_, atol=1e-14, equal_nan=True)
 
 
 @pytest.mark.parametrize('backend,bins', [('exact', None), ('binned', 31)])

@@ -7,5 +7,5 @@ description = "BankaiRF a15 virtual-shadow importance engine for Boruta."
 repository = "https://github.com/breno-jesus-fernandes/bankai-boruta"
 
 [dependencies]
-bankai-random-forest = { version = "=0.1.0-alpha.17", git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "9a9a55af107e8cfd9f5aad8dc2c135553ce2531f" }
-xrf = { version = "=1.0.0", git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "9a9a55af107e8cfd9f5aad8dc2c135553ce2531f" }
+bankai-random-forest = { version = "=0.1.0-alpha.18", git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "22f9a4c81ec1c437d8e85fb3648e5f6202a27d67" }
+xrf = { version = "=1.0.0", git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "22f9a4c81ec1c437d8e85fb3648e5f6202a27d67" }

@@ -266,6 +266,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                 settings = self._native_settings_
                 gain = _boruta_core.gain_importances if session is None else session.gain_importances
                 arrays = (X, encoded) if session is None else ()
+                forest = {} if session is not None else dict(extra_trees=settings['extra_trees'])
                 result = gain(
                     *arrays, active.astype(np.int64), sources.astype(np.int64), permutations,
                     int(self.estimator_.n_estimators), int(params['max_depth'] or 512),
@@ -275,7 +276,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                     settings['criterion'], settings['min_samples_split'], settings['min_samples_leaf'],
                     settings['min_leaf_weight'], settings['min_impurity_decrease'], settings['max_leaves'],
                     settings['bootstrap'], settings['sample_size'], settings['binning_strategy'],
-                    settings['bin_sample_size'], settings['binning_seed'])
+                    settings['bin_sample_size'], settings['binning_seed'], **forest)
                 scores, prep, train = result[:3]
                 if session is not None:
                     for name, value in result[3].items():
@@ -401,17 +402,17 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         extra_trees = params['extra_trees']
         if not isinstance(extra_trees, bool):
             return False, 'extra_trees requires a bool'
-        # Ordinary Random Forests share the exact shadow session; their
-        # histogram mode keeps the Python fit.
-        backend = params['extra_trees_backend'] if extra_trees else ('exact' if params['max_bins'] is None else None)
+        # Ordinary Random Forests share both shadow sessions: max_bins selects
+        # their histogram mode, as in BankaiRF.
+        backend = params['extra_trees_backend'] if extra_trees else ('exact' if params['max_bins'] is None else 'binned')
         if backend not in ('exact', 'binned'):
-            return False, 'Extra Trees backend outside native subset' if extra_trees else 'binned Random Forest uses the Python fit'
-        if backend == 'exact' and params['max_bins'] is not None:
+            return False, 'Extra Trees backend outside native subset'
+        if extra_trees and backend == 'exact' and params['max_bins'] is not None:
             return False, 'exact Extra Trees requires max_bins=None'
         if backend == 'exact' and X.dtype != np.float32:
             return False, 'exact native forests currently require float32 input'
         if backend == 'binned' and (not isinstance(params['max_bins'], Integral) or isinstance(params['max_bins'], bool) or not 2 <= params['max_bins'] <= 255):
-            return False, 'binned Extra Trees requires max_bins in [2, 255]'
+            return False, 'binned forests require max_bins in [2, 255]'
         if params['criterion'] not in ('gini', 'entropy', 'log_loss'):
             return False, 'criterion outside native subset'
         if not isinstance(params['bootstrap'], bool):
@@ -438,7 +439,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             max_leaves=max_leaves, bootstrap=params['bootstrap'], sample_size=sample_size,
             threads=threads, binning_strategy=binning_strategy, bin_sample_size=bin_sample_size,
             binning_seed=binning_seed, max_depth=max_depth, max_features=max_features)
-        kind = f'{backend} Extra Trees' if extra_trees else 'exact Random Forest'
+        kind = f'{backend} Extra Trees' if extra_trees else f'{backend} Random Forest'
         return True, f'a15 {kind} gain; virtual shadows; estimator controls forwarded'
 
     def _importances(self):
