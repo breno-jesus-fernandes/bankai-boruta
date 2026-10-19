@@ -3,7 +3,7 @@ name = "boruta-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "BankaiRF a15 virtual-shadow importance engine for Boruta."
+description = "BankaiRF native shadow importance engine for Boruta."
 repository = "https://github.com/breno-jesus-fernandes/bankai-boruta"
 
 [dependencies]

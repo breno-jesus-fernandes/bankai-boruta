@@ -1,4 +1,4 @@
-//! BankaiRF a15 training with virtual shadow access and per-tree gain normalization.
+//! BankaiRF training with native shadow access and gain importances.
 #![forbid(unsafe_code)]
 use bankai_random_forest::dense::Criterion;
 pub use bankai_random_forest::dense::{BinningStrategy, DenseInput, ExactColumnBank, ExactColumnTable, ExactRowIndices, ExactVirtualColumns};
