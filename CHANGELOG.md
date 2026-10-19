@@ -1,6 +1,25 @@
 # Changelog
 
-## 0.1.0a8 (unreleased)
+## 0.1.0a9
+
+- Train ordinary binned Random Forests (`extra_trees=False` with `max_bins`)
+  natively. Float32 input uses the binned shadow session: real columns are
+  binned once per fit and shadows shuffle their codes. Float64 input keeps
+  per-round binning on the native path. Importances use BankaiRF's
+  forest-normalized gain, and tests pin importance parity with BankaiRF's own
+  fit on the same matrix. Every exact and binned Extra Trees and Random Forest
+  configuration in the native subset now avoids the Python fit.
+- Sum ordinary Random Forest gains over trees in a canonical order. In a8,
+  exact Random Forest importances could differ in the last bit between worker
+  counts because trees finish in a thread-dependent order; they are now
+  identical for any `n_jobs`, as Extra Trees importances already were.
+- Require BankaiRF 0.1.0a18, whose histograms read column-major codes.
+- Publish to PyPI when a PR is merged into `main` and its version is not on
+  PyPI yet. The GitHub release now comes from the same run and artifacts as
+  the PyPI upload. A manual dispatch with `publish=true` remains available to
+  retry.
+
+## 0.1.0a8
 
 - Make a shadow session the default for native exact Extra Trees. Each fit
   sorts rows once into a canonical float32 column bank; each round copies the

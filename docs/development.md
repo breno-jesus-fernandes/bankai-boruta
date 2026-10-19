@@ -37,18 +37,20 @@ instead of replacing them. Pull requests and `develop` builds do not publish.
 PyPI upload still uses the configured Trusted Publisher and only runs for a
 version not yet present on PyPI.
 
-## a8 release order
+## a9 release order
 
-BankaiRF **0.1.0a17** must be published before Bankai Boruta **0.1.0a8**. Development sources use the immutable
+BankaiRF **0.1.0a18** must be published before Bankai Boruta **0.1.0a9**. Development sources use the immutable
 RF git revision recorded in pyproject.toml and the Rust manifest; no mutable
 branch or local Cargo patch is part of the release. The distribution's mandatory
-Python dependency is RF ==0.1.0a17. After RF is published, verify public wheel
-installation in a clean environment before authorizing Boruta publication.
+Python dependency is RF ==0.1.0a18. The Boruta publication build smoke-tests its
+wheel against the public RF release before uploading.
 
-CI still builds artifacts automatically. PyPI upload now additionally requires
-an authorized manual dispatch with `publish=true` on the default branch. Example
-after approval: `gh workflow run ci.yml --ref main -f publish=true`. Opening or
-merging the PR does not authorize that dispatch. No publication was executed.
+Merging a reviewed PR into `main` publishes its version to PyPI when that
+version is not on PyPI yet, then creates the GitHub release from the same run's
+artifacts. Publication builds install RF from PyPI, so merge and publish the RF
+release first; a Boruta merge made too early fails its smoke test before any
+upload. PRs and `develop` builds never publish. A manual dispatch retries a
+failed publication: `gh workflow run ci.yml --ref main -f publish=true`.
 
 macOS local builds of the Boruta extension need dependency-wide dynamic symbol
 lookup because the RF dependency also emits a cdylib:

@@ -255,20 +255,20 @@ The default binned Extra Trees path uses its own column-bin statistics rather
 than the global histogram caches of BankaiRF's ordinary Random Forest path.
 
 Rust execution is selected automatically for supported exact or binned Extra
-Trees gain configurations. Supported forest settings are forwarded into the
+Trees and Random Forest gain configurations. Supported forest settings are forwarded into the
 native fit; unsupported settings, weights, monotonic constraints and custom
 getters use the Python adapter, preserving estimator parameters and forest
 validation. Shadow monotonic constraints are always zero. `diagnostics_`
 records the path and its reason.
 
-The a8 release aligns Python and Rust dependencies to BankaiRF **0.1.0a17**;
+The a9 release aligns Python and Rust dependencies to BankaiRF **0.1.0a18**;
 the immutable Rust/development Python revision is
-`9a9a55af107e8cfd9f5aad8dc2c135553ce2531f`. RF a17 must be published first.
+`22f9a4c81ec1c437d8e85fb3648e5f6202a27d67`. RF a18 must be published first.
 Native fits use a shadow session by default: one canonical bank per fit
-(float32 values for exact forests, one-byte bin codes for binned Extra Trees)
+(float32 values for exact forests, one-byte bin codes for binned forests)
 plus shuffled shadow columns, with no augmented float matrix or permutation
-maps. Exact Extra Trees, exact Random Forests and float32 binned Extra Trees
-share it. `BANKAI_BORUTA_EXACT_REFERENCE=1` selects the a7
+maps. Exact and float32 binned Extra Trees and Random Forests share it; float64
+binned input keeps per-round binning on the native path. `BANKAI_BORUTA_EXACT_REFERENCE=1` selects the a7
 materialized path and `BANKAI_BORUTA_EXACT_SESSION=1` the a7 virtual session.
 Independent fits never share sessions.
 `diagnostics_` also reports `input_dtype` (received dtype),
