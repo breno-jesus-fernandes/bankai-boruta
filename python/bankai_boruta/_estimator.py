@@ -149,9 +149,22 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             native_input_dtype=str(X.dtype) if native else None,
             input_conversion_bytes=conversion_bytes,
             permutation_dtype=permutation_dtype.name, permutation_bytes=0)
-        # Experimental opt-in until the AMD acceptance campaign passes.
-        session = None
-        if native and self._native_settings_['backend'] == 'exact' and os.environ.get('BANKAI_BORUTA_EXACT_SESSION') == '1':
+        # Native exact fits keep one canonical float32 bank and shuffle shadow
+        # values in place each round. The a7 materialized path (REFERENCE) and
+        # virtual session (SESSION) remain available for parity checks.
+        session = shadow_session = None
+        exact = native and self._native_settings_['backend'] == 'exact'
+        if exact and os.environ.get('BANKAI_BORUTA_EXACT_REFERENCE') != '1' and os.environ.get('BANKAI_BORUTA_EXACT_SESSION') != '1':
+            from . import _boruta_core
+            prep_started = perf_counter()
+            shadow_session = _boruta_core.ShadowSession(X, encoded.astype(np.int64, copy=False), self._native_settings_['threads'])
+            session_seconds = perf_counter() - prep_started
+            self.diagnostics_.update(session_creation_seconds=session_seconds,
+                real_bank_bytes=shadow_session.bank_bytes, real_bank_copied_bytes=shadow_session.bank_bytes,
+                storage_mode='shadow_session', shuffle_seconds=0., storage_seconds=0.,
+                shadow_buffer_bytes=0, materialized_bytes=0, materialized_copied_bytes=0)
+            self.diagnostics_['preparation_seconds'] += session_seconds
+        elif exact and os.environ.get('BANKAI_BORUTA_EXACT_SESSION') == '1':
             from . import _boruta_core
             prep_started = perf_counter()
             session = _boruta_core.ExactSession(X, encoded.astype(np.int64, copy=False))
@@ -173,7 +186,7 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         permutations = None
         augmented = None
         session_shuffle = session is not None and type(rng) is np.random.RandomState and permutation_dtype == np.uint32
-        row_indices = None if session_shuffle else np.arange(len(X), dtype=permutation_dtype)
+        row_indices = None if session_shuffle or shadow_session is not None else np.arange(len(X), dtype=permutation_dtype)
         self.diagnostics_['permutation_bytes'] = 0 if row_indices is None else row_indices.nbytes
         encoded = encoded.astype(np.int64, copy=False)
         self.n_iter_ = 0
@@ -189,7 +202,9 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
             while len(sources) < 5:
                 sources = np.tile(sources, 2)
             prep_started = perf_counter()
-            if session_shuffle:
+            if shadow_session is not None:
+                shadow_seed = int(rng.randint(np.iinfo(np.int64).max, dtype=np.int64))
+            elif session_shuffle:
                 state = rng.get_state(legacy=False)
                 words, position = session.shuffle_uint32(state['state']['key'], state['state']['pos'], len(sources))
                 state['state']['key'] = words
@@ -205,7 +220,8 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                     _shuffle_permutation(rng, permutation)
             shuffle_seconds = perf_counter() - prep_started
             self.diagnostics_['preparation_seconds'] += shuffle_seconds
-            self.diagnostics_['shuffle_seconds'] = self.diagnostics_.get('shuffle_seconds', 0.) + shuffle_seconds
+            if shadow_session is None:
+                self.diagnostics_['shuffle_seconds'] = self.diagnostics_.get('shuffle_seconds', 0.) + shuffle_seconds
             seed = int(rng.randint(np.iinfo(np.int32).max))
             # A warm-start forest must not retain trees trained on old shadows.
             if params.get('warm_start', False):
@@ -222,7 +238,23 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
                 if constraints.shape != (p,):
                     raise ValueError("monotonic_cst must have one value per original feature")
                 self.estimator_.set_params(monotonic_cst=np.r_[constraints[active], np.zeros(len(sources), dtype=int)])
-            if native:
+            if shadow_session is not None:
+                settings = self._native_settings_
+                scores, prep, train, metrics = shadow_session.gain_importances(
+                    active.astype(np.int64), sources.astype(np.int64), shadow_seed,
+                    int(self.estimator_.n_estimators), int(params['max_depth'] or 512),
+                    int(check_random_state(seed).randint(np.iinfo(np.int32).max)),
+                    int(params['extra_seed']), settings['threads'],
+                    self._native_max_features(len(active) + len(sources)),
+                    settings['criterion'], settings['min_samples_split'], settings['min_samples_leaf'],
+                    settings['min_leaf_weight'], settings['min_impurity_decrease'], settings['max_leaves'],
+                    settings['bootstrap'], settings['sample_size'])
+                for name in ('shuffle_seconds', 'storage_seconds'):
+                    self.diagnostics_[name] += metrics[name]
+                self.diagnostics_['shadow_buffer_bytes'] = max(self.diagnostics_['shadow_buffer_bytes'], int(metrics['shadow_buffer_bytes']))
+                self.diagnostics_['preparation_seconds'] += prep
+                self.diagnostics_['training_seconds'] += train
+            elif native:
                 from . import _boruta_core
                 settings = self._native_settings_
                 gain = _boruta_core.gain_importances if session is None else session.gain_importances

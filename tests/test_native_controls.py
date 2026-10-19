@@ -86,7 +86,10 @@ def test_resolved_controls_cross_native_boundary(monkeypatch, jobs, expected):
     ('exact', None, np.float32),
     ('binned', 31, np.float32),
 ])
-def test_native_and_adapter_parity_for_each_extra_trees_backend(backend, bins, dtype):
+def test_native_and_adapter_parity_for_each_extra_trees_backend(monkeypatch, backend, bins, dtype):
+    # Exact adapter parity holds for the a7 reference path, whose shadows are
+    # NumPy permutations; the default shadow session draws its own.
+    monkeypatch.setenv('BANKAI_BORUTA_EXACT_REFERENCE', '1')
     X = np.random.default_rng(10).normal(size=(96, 12)).astype(dtype)
     y = (X[:, 0] + X[:, 1] > 0).astype(int)
     base = BankaiRandomForestClassifier(n_estimators=5, max_depth=4, max_bins=bins,
@@ -100,7 +103,10 @@ def test_native_and_adapter_parity_for_each_extra_trees_backend(backend, bins, d
 
 
 @pytest.mark.parametrize('backend,bins', [('exact', None), ('binned', 31)])
-def test_native_forwards_custom_bankairf_controls(backend, bins):
+def test_native_forwards_custom_bankairf_controls(monkeypatch, backend, bins):
+    # Exact adapter parity holds for the a7 reference path, whose shadows are
+    # NumPy permutations; the default shadow session draws its own.
+    monkeypatch.setenv('BANKAI_BORUTA_EXACT_REFERENCE', '1')
     X = np.random.default_rng(12).normal(size=(96, 10)).astype(np.float32)
     y = (X[:, 0] > 0).astype(int)
     base = BankaiRandomForestClassifier(n_estimators=5, max_depth=4, max_bins=bins,

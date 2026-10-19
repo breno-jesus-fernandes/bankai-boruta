@@ -628,9 +628,108 @@ fn shuffle_uint32<'py>(
     Ok((rng.words.to_vec().into_pyarray(py), rng.position))
 }
 
+/// One fit's float32 bank in canonical row order plus a reusable shadow
+/// buffer. Shadows are shuffled values, so no permutation maps are stored.
+#[pyclass]
+struct ShadowSession {
+    rows: usize,
+    columns: usize,
+    bank: std::sync::Arc<Vec<f32>>,
+    labels: Vec<usize>,
+    shadows: std::sync::Arc<Vec<f32>>,
+}
+
+#[pymethods]
+impl ShadowSession {
+    #[new]
+    fn new(x: PyReadonlyArray2<'_, f32>, y: PyReadonlyArray1<'_, i64>, threads: usize) -> PyResult<Self> {
+        let x = x.as_array();
+        let (rows, columns) = x.dim();
+        let labels = y
+            .as_array()
+            .iter()
+            .map(|&v| usize::try_from(v))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| PyValueError::new_err("invalid labels"))?;
+        if rows == 0 || columns == 0 || threads == 0 || labels.len() != rows
+            || labels.iter().max().is_none_or(|&v| v == 0 || v >= rows)
+            || x.iter().any(|v| !v.is_finite())
+        {
+            return Err(PyValueError::new_err("invalid training arrays or settings"));
+        }
+        let order = boruta_core::canonical_row_order(rows, columns, &labels, |r, c| x[[r, c]]);
+        let bank = boruta_core::real_bank(rows, columns, &order, threads, |r, c| x[[r, c]]);
+        let labels = order.iter().map(|&r| labels[r]).collect();
+        Ok(Self { rows, columns, bank: std::sync::Arc::new(bank), labels, shadows: std::sync::Arc::new(Vec::new()) })
+    }
+
+    #[getter]
+    fn bank_bytes(&self) -> usize { self.bank.len() * 4 }
+
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (active, sources, shadow_seed, trees, depth, seed, extra_seed, threads, max_features, criterion="gini", min_samples_split=2, min_samples_leaf=1, min_leaf_weight=0.0, min_impurity_decrease=0.0, max_leaves=None, bootstrap=true, sample_size=None))]
+    fn gain_importances(
+        &mut self,
+        active: PyReadonlyArray1<'_, i64>,
+        sources: PyReadonlyArray1<'_, i64>,
+        shadow_seed: u64,
+        trees: usize,
+        depth: usize,
+        seed: u64,
+        extra_seed: u64,
+        threads: usize,
+        max_features: usize,
+        criterion: &str,
+        min_samples_split: usize,
+        min_samples_leaf: usize,
+        min_leaf_weight: f64,
+        min_impurity_decrease: f64,
+        max_leaves: Option<usize>,
+        bootstrap: bool,
+        sample_size: Option<usize>,
+    ) -> PyResult<(Vec<f64>, f64, f64, std::collections::HashMap<String, f64>)> {
+        let start = std::time::Instant::now();
+        let to_columns = |values: PyReadonlyArray1<'_, i64>| -> PyResult<Vec<usize>> {
+            values.as_array().iter()
+                .map(|&v| usize::try_from(v).ok().filter(|&c| c < self.columns))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| PyValueError::new_err("invalid feature indices"))
+        };
+        let (active, sources) = (to_columns(active)?, to_columns(sources)?);
+        if active.is_empty() || sources.is_empty() || threads == 0 {
+            return Err(PyValueError::new_err("invalid training arrays or settings"));
+        }
+        // The previous round's forest is gone, so the buffer is uniquely owned.
+        let buffer = std::sync::Arc::make_mut(&mut self.shadows);
+        boruta_core::fill_shadows(&self.bank, self.rows, &sources, shadow_seed, threads, buffer);
+        let shuffle_seconds = start.elapsed().as_secs_f64();
+        let table = boruta_core::ExactColumnTable::new(self.rows, self.bank.clone(), self.shadows.clone(), &active, sources.len())
+            .map_err(PyValueError::new_err)?;
+        let result = boruta_core::gain_importances_columns(
+            table, self.labels.clone(), trees, depth, seed, extra_seed, threads, max_features,
+            criterion, min_samples_split, min_samples_leaf, min_leaf_weight, min_impurity_decrease,
+            max_leaves.unwrap_or(usize::MAX), bootstrap, sample_size,
+        )
+        .map_err(PyValueError::new_err)?;
+        let metrics = [
+            ("shuffle_seconds", shuffle_seconds),
+            ("storage_seconds", result.preparation_seconds),
+            ("real_bank_bytes", (self.bank.len() * 4) as f64),
+            ("shadow_buffer_bytes", (self.shadows.capacity() * 4) as f64),
+            ("materialized_bytes", 0.),
+            ("feature_workspace_peak_bytes_per_worker", result.feature_workspace_peak_bytes_per_worker),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v))
+        .collect();
+        Ok((result.importances, shuffle_seconds + result.preparation_seconds, result.training_seconds, metrics))
+    }
+}
+
 #[pymodule]
 fn _boruta_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ExactSession>()?;
+    m.add_class::<ShadowSession>()?;
     m.add_function(wrap_pyfunction!(gain_importances, m)?)?;
     m.add_function(wrap_pyfunction!(shuffle_uint32, m)?)?;
     Ok(())

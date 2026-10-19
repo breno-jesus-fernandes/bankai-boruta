@@ -1,6 +1,27 @@
 # Changelog
 
-## 0.1.0a7 (unreleased)
+## 0.1.0a8 (unreleased)
+
+- Make a shadow session the default for native exact Extra Trees. Each fit
+  sorts rows once into a canonical float32 column bank; each round copies the
+  shadow sources into one reusable buffer and Fisher-Yates shuffles the values
+  in parallel, one xoshiro256** stream per shadow. No augmented matrix and no
+  permutation maps are allocated, and training reads contiguous columns
+  through BankaiRF 0.1.0a17's `ExactColumnTable`.
+- Industrial 200k x 500 (Mac, 4 threads): a 500-feature round takes 2.3-2.9 s
+  instead of 8.0 s (a7 materialized) or 7.1 s (a7 virtual session); five-seed
+  full fits run 1.9-4.3x faster than BorutaPy with scikit-learn ExtraTrees at
+  the same settings, with lower peak RSS and the same selections.
+- Sum per-tree gain shares in fixed point, so importances are identical for
+  any worker count and tree completion order.
+- Shadow values come from a new stream, so selections for a given
+  `random_state` differ from a7 while the statistics are unchanged (60-seed
+  round counts: 32.1 +/- 1.4 versus 35.1 +/- 1.2 for BorutaPy + ExtraTrees).
+  `BANKAI_BORUTA_EXACT_REFERENCE=1` restores the a7 materialized path and
+  `BANKAI_BORUTA_EXACT_SESSION=1` the a7 virtual session.
+- Require BankaiRF 0.1.0a17.
+
+## 0.1.0a7
 
 - Add an experimental private per-fit exact session with BankaiRF a16 shared
   real columns and explicit virtual shadow permutations.

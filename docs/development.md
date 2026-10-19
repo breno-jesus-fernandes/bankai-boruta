@@ -37,14 +37,12 @@ instead of replacing them. Pull requests and `develop` builds do not publish.
 PyPI upload still uses the configured Trusted Publisher and only runs for a
 version not yet present on PyPI.
 
-## Experimental a7 release order
+## a8 release order
 
-Run the [exact-session protocol](exact-session.md) and review the
-[validation report](exact-session-validation.md). BankaiRF **0.1.0a16** must be
-published before Bankai Boruta **0.1.0a7**. Development sources use the immutable
+BankaiRF **0.1.0a17** must be published before Bankai Boruta **0.1.0a8**. Development sources use the immutable
 RF git revision recorded in pyproject.toml and the Rust manifest; no mutable
 branch or local Cargo patch is part of the release. The distribution's mandatory
-Python dependency is RF ==0.1.0a16. After RF is published, verify public wheel
+Python dependency is RF ==0.1.0a17. After RF is published, verify public wheel
 installation in a clean environment before authorizing Boruta publication.
 
 CI still builds artifacts automatically. PyPI upload now additionally requires

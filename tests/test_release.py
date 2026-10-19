@@ -10,8 +10,8 @@ import pytest
 from scripts.release_artifacts import SBOMS, project_release, verify_artifacts
 from scripts.publish_github_release import ensure_release
 
-VERSION = '0.1.0a7'
-PIN = 'bankai-random-forest==0.1.0a16'
+VERSION = '0.1.0a8'
+PIN = 'bankai-random-forest==0.1.0a17'
 
 
 def metadata(version=VERSION, pin=PIN):
@@ -65,7 +65,7 @@ def test_incomplete_or_mismatched_release_is_rejected(artifacts, corruption):
 
 def test_version_alignment(tmp_path):
     (tmp_path / 'pyproject.toml').write_text(f'[project]\nversion="{VERSION}"\ndependencies=["{PIN}"]\n')
-    (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.7"\n')
+    (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.8"\n')
     assert project_release(tmp_path) == (VERSION, PIN)
     (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.2"\n')
     with pytest.raises(ValueError, match='versions differ'):
@@ -89,7 +89,7 @@ class FakeGitHub:
         if path.endswith('/releases'):
             self.creates += 1
             assert data['draft'] is True
-            self.release = dict(data, id=1, assets=[], upload_url='https://uploads.github.com/test{?name,label}', html_url='https://github.com/test/releases/v0.1.0a7')
+            self.release = dict(data, id=1, assets=[], upload_url='https://uploads.github.com/test{?name,label}', html_url='https://github.com/test/releases/v0.1.0a8')
             return copy.deepcopy(self.release)
         from urllib.parse import parse_qs, urlparse
         name = parse_qs(urlparse(path).query)['name'][0]
@@ -161,4 +161,4 @@ def test_immutable_forest_source_alignment():
     for lock in ('uv.lock','Cargo.lock'):
         package = next(p for p in tomllib.loads((root/lock).read_text())['package'] if p['name']=='bankai-random-forest')
         assert source['rev'] in str(package['source'])
-        assert package['version'] == ('0.1.0a16' if lock=='uv.lock' else '0.1.0-alpha.16')
+        assert package['version'] == ('0.1.0a17' if lock=='uv.lock' else '0.1.0-alpha.17')

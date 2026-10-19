@@ -5,6 +5,12 @@ from bankai_boruta import BankaiBoruta, _boruta_core
 from bankai_random_forest import BankaiRandomForestClassifier
 
 
+@pytest.fixture(autouse=True)
+def a7_reference(monkeypatch):
+    # These tests pin the a7 materialized path against the a7 virtual session.
+    monkeypatch.setenv('BANKAI_BORUTA_EXACT_REFERENCE', '1')
+
+
 def fit_pair(monkeypatch, X, y, **controls):
     base = BankaiRandomForestClassifier(extra_trees=True, extra_trees_backend='exact',
         max_depth=4, n_estimators=7, n_jobs=controls.pop('threads', 1), **controls)
