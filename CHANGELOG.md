@@ -9,6 +9,7 @@
   shadow session. Pass a binned `BankaiRandomForestClassifier` to keep the
   previous behavior.
 - The README quick start writes the default forest out explicitly.
+- The README install command pins the alpha release.
 
 ## 0.1.0a10
 

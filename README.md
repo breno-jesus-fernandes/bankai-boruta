@@ -28,10 +28,11 @@ Greedy Boruta variant.
 
 ## Install
 
-Python 3.11 or newer is required:
+Python 3.11 or newer is required. Bankai Boruta is in alpha, so pin the
+release you install:
 
 ```bash
-python -m pip install bankai-boruta
+python -m pip install bankai-boruta==0.1.0a11
 ```
 
 ## Quick start
