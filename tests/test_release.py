@@ -10,8 +10,8 @@ import pytest
 from scripts.release_artifacts import SBOMS, project_release, verify_artifacts
 from scripts.publish_github_release import ensure_release
 
-VERSION = '0.1.0a11'
-PIN = 'bankai-random-forest==0.1.0a18'
+VERSION = '0.1.0a12'
+PIN = 'bankai-random-forest==0.1.0a20'
 
 
 def metadata(version=VERSION, pin=PIN):
@@ -65,7 +65,7 @@ def test_incomplete_or_mismatched_release_is_rejected(artifacts, corruption):
 
 def test_version_alignment(tmp_path):
     (tmp_path / 'pyproject.toml').write_text(f'[project]\nversion="{VERSION}"\ndependencies=["{PIN}"]\n')
-    (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.11"\n')
+    (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.12"\n')
     assert project_release(tmp_path) == (VERSION, PIN)
     (tmp_path / 'Cargo.toml').write_text('[workspace.package]\nversion="0.1.0-alpha.2"\n')
     with pytest.raises(ValueError, match='versions differ'):
@@ -161,4 +161,4 @@ def test_immutable_forest_source_alignment():
     for lock in ('uv.lock','Cargo.lock'):
         package = next(p for p in tomllib.loads((root/lock).read_text())['package'] if p['name']=='bankai-random-forest')
         assert source['rev'] in str(package['source'])
-        assert package['version'] == ('0.1.0a18' if lock=='uv.lock' else '0.1.0-alpha.18')
+        assert package['version'] == ('0.1.0a20' if lock=='uv.lock' else '0.1.0-alpha.20')

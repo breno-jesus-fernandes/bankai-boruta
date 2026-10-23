@@ -10,7 +10,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "bankai-boruta-python"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "boruta-core",
  "numpy",
@@ -19,8 +19,8 @@ dependencies = [
 
 [[package]]
 name = "bankai-random-forest"
-version = "0.1.0-alpha.18"
-source = "git+https://github.com/breno-jesus-fernandes/bankai-random-forest.git?rev=22f9a4c81ec1c437d8e85fb3648e5f6202a27d67#22f9a4c81ec1c437d8e85fb3648e5f6202a27d67"
+version = "0.1.0-alpha.20"
+source = "git+https://github.com/breno-jesus-fernandes/bankai-random-forest.git?rev=161fc85c4334d0880a42f10ba56f46c66b00db59#161fc85c4334d0880a42f10ba56f46c66b00db59"
 dependencies = [
  "numpy",
  "pyo3",
@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "boruta-core"
-version = "0.1.0-alpha.11"
+version = "0.1.0-alpha.12"
 dependencies = [
  "bankai-random-forest",
  "xrf",
@@ -249,4 +249,4 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 [[package]]
 name = "xrf"
 version = "1.0.0"
-source = "git+https://github.com/breno-jesus-fernandes/bankai-random-forest.git?rev=22f9a4c81ec1c437d8e85fb3648e5f6202a27d67#22f9a4c81ec1c437d8e85fb3648e5f6202a27d67"
+source = "git+https://github.com/breno-jesus-fernandes/bankai-random-forest.git?rev=161fc85c4334d0880a42f10ba56f46c66b00db59#161fc85c4334d0880a42f10ba56f46c66b00db59"
