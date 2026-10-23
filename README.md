@@ -40,12 +40,20 @@ This example generates a binary classification dataset with 1,000 rows and 20
 features. It fits selection on the training partition and applies the same
 feature mask to the held-out partition. A pandas DataFrame supplies feature names.
 
+The forest is the default one, written out: exact Extra Trees from Bankai Random
+Forest with depth 6 on all cores. Thread count, depth and backend are set on the
+forest. Exact forests run in the native engine with float32 input, so the
+features are float32; the default forest casts float64 input itself.
+`n_estimators="auto"` on the selector replaces the forest's tree count with
+BorutaPy's heuristic each round; use `n_estimators=None` to keep it.
+
 ```python
 import pandas as pd
 from sklearn.datasets import make_classification
 from sklearn.model_selection import train_test_split
 
 from bankai_boruta import BankaiBoruta
+from bankai_random_forest import BankaiRandomForestClassifier
 
 values, y = make_classification(
     n_samples=1_000,
@@ -54,12 +62,20 @@ values, y = make_classification(
     n_redundant=3,
     random_state=2077,
 )
-X = pd.DataFrame(values, columns=[f"feature_{i}" for i in range(values.shape[1])])
+X = pd.DataFrame(values.astype("float32"), columns=[f"feature_{i}" for i in range(values.shape[1])])
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, stratify=y, random_state=2077,
 )
 
+forest = BankaiRandomForestClassifier(
+    extra_trees=True,
+    extra_trees_backend="exact",
+    importance_type="gain",
+    max_depth=6,
+    n_jobs=-1,
+)
 selector = BankaiBoruta(
+    forest,
     n_estimators="auto",
     perc=100,
     alpha=0.05,
@@ -114,7 +130,7 @@ selector = BankaiBoruta(
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `estimator` | `None` | A clonable classifier. `None` uses the default BankaiRF forest shown below. The supplied estimator is not modified. |
+| `estimator` | `None` | A clonable classifier. `None` uses the exact Extra Trees forest from the quick start and casts float64 input to float32, as scikit-learn's trees do. The supplied estimator is not modified. |
 | `n_estimators` | `"auto"` | BorutaPy's feature/depth heuristic for tree count. A positive integer overrides the count; `None` keeps the estimator's setting and supports classifiers without a tree-count parameter. |
 | `perc` | `100` | Shadow-importance percentile in `(0, 100]`. A real feature scores a hit only when its importance is strictly above this threshold. |
 | `alpha` | `0.05` | Significance level in `(0, 1)` for classic tests and the greedy round budget. |
@@ -147,20 +163,9 @@ The selector supports scikit-learn pipelines, cloning and parameter search.
 
 ## Forests
 
-The default forest is binned Extra Trees with 63 bins:
-
-```python
-from bankai_random_forest import BankaiRandomForestClassifier
-
-forest = BankaiRandomForestClassifier(
-    extra_trees=True,
-    extra_trees_backend="binned",
-    max_bins=63,
-    importance_type="gain",
-    max_depth=6,
-    n_jobs=-1,
-)
-```
+The default forest is the exact Extra Trees forest from the quick start. With
+`estimator=None`, float64 input is cast once to float32 so the fit always runs
+natively; `diagnostics_["input_dtype"]` keeps the original type.
 
 Pass any `BankaiRandomForestClassifier` to choose another backend. Nested
 parameters such as `estimator__max_depth` work with `set_params` and parameter

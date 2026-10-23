@@ -123,8 +123,14 @@ class BankaiBoruta(SelectorMixin, BaseEstimator):
         from bankai_random_forest import BankaiRandomForestClassifier
         base = self.estimator
         if base is None:
-            base = BankaiRandomForestClassifier(extra_trees=True, extra_trees_backend="binned",
-                    max_bins=63, importance_type="gain", max_depth=6, n_jobs=-1)
+            # Exact Extra Trees split on float32 values, as scikit-learn's trees do;
+            # float64 input is cast once so the default forest always runs natively.
+            base = BankaiRandomForestClassifier(extra_trees=True, extra_trees_backend="exact",
+                    importance_type="gain", max_depth=6, n_jobs=-1)
+            if X.dtype != np.float32:
+                convert_started = perf_counter()
+                X = X.astype(np.float32)
+                conversion_seconds += perf_counter() - convert_started
         if not is_classifier(base):
             raise ValueError("estimator must be a classifier")
         self.estimator_ = clone(base)
