@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0a11
+
+- The default forest (`estimator=None`) is now exact Extra Trees
+  (`extra_trees_backend="exact"`, depth 6, gain importance, all cores) instead
+  of binned Extra Trees with 63 bins. Float64 input is cast once to float32 for
+  the default forest, as scikit-learn's trees do, so it always uses the native
+  shadow session. Pass a binned `BankaiRandomForestClassifier` to keep the
+  previous behavior.
+- The README quick start writes the default forest out explicitly.
+- The README install command pins the alpha release.
+
 ## 0.1.0a10
 
 - Rewrite the README around the current release: native backends, the shadow

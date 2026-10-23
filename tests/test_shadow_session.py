@@ -155,14 +155,33 @@ def test_binned_session_matches_bankairf_on_reconstructed_matrix(extra_trees, bo
     np.testing.assert_allclose(scores, model.feature_importances_, rtol=0, atol=1e-15)
 
 
-def test_default_binned_estimator_uses_code_session_and_float64_keeps_a7():
+def test_default_estimator_is_exact_and_casts_float64_to_the_session():
     X, y = data()
     selector = BankaiBoruta(n_estimators=20, max_iter=40, random_state=2).fit(X, y)
+    diagnostics = selector.diagnostics_
+    assert selector.estimator_.extra_trees_backend == 'exact' and selector.estimator_.max_bins is None
+    assert diagnostics['storage_mode'] == 'shadow_session'
+    assert diagnostics['real_bank_bytes'] == X.nbytes
+    assert diagnostics['materialized_bytes'] == diagnostics['permutation_bytes'] == 0
+    assert selector.support_[:2].all() and not selector.support_[2:].any()
+    wide = BankaiBoruta(n_estimators=20, max_iter=40, random_state=2).fit(X.astype(np.float64), y)
+    assert wide.diagnostics_['path'] == 'rust'
+    assert wide.diagnostics_['storage_mode'] == 'shadow_session'
+    assert wide.diagnostics_['input_dtype'] == 'float64'
+    assert wide.diagnostics_['native_input_dtype'] == 'float32'
+    np.testing.assert_array_equal(wide.ranking_, selector.ranking_)
+
+
+def test_binned_estimator_uses_code_session_and_float64_keeps_a7():
+    X, y = data()
+    base = BankaiRandomForestClassifier(extra_trees=True, extra_trees_backend='binned', max_bins=63,
+        importance_type='gain', max_depth=6, n_jobs=-1)
+    selector = BankaiBoruta(base, n_estimators=20, max_iter=40, random_state=2).fit(X, y)
     diagnostics = selector.diagnostics_
     assert diagnostics['storage_mode'] == 'shadow_session'
     assert diagnostics['real_bank_bytes'] == X.size
     assert diagnostics['materialized_bytes'] == diagnostics['permutation_bytes'] == 0
     assert selector.support_[:2].all() and not selector.support_[2:].any()
-    selector = BankaiBoruta(n_estimators=5, max_iter=3, random_state=2).fit(X.astype(np.float64), y)
+    selector = BankaiBoruta(base, n_estimators=5, max_iter=3, random_state=2).fit(X.astype(np.float64), y)
     assert selector.diagnostics_['path'] == 'rust'
     assert selector.diagnostics_['storage_mode'] == 'materialized'
