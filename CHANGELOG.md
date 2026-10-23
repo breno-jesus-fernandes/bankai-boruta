@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0a12
+
+- Require BankaiRF 0.1.0a20. Its Extra Trees fits partition one row buffer per
+  tree in place, keep bootstrap counts as u32 weights and search exact binary
+  splits with integer sums and f32 comparisons. Selections, decision history and
+  importances are bit-identical to 0.1.0a11.
+- On CIC-IDS2017 (1.75M x 78, c7a.4xlarge, 16 threads, seeds 42-46) the default
+  exact fit's median time drops from 98.1 s to 39.5 s and its peak RSS above the
+  data from 4.96 GiB to 2.11 GiB. BorutaPy with scikit-learn Extra Trees takes
+  130.6 s and 4.04 GiB on the same runs, with the same confirmed features.
+
 ## 0.1.0a11
 
 - The default forest (`estimator=None`) is now exact Extra Trees

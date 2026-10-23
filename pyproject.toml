@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "bankai-boruta"
-version = "0.1.0a11"
+version = "0.1.0a12"
 description = "Native Rust Boruta feature selection for Python."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,7 +14,7 @@ dependencies = [
     "numpy>=2.1",
     "scikit-learn>=1.6",
     "scipy>=1.13",
-    "bankai-random-forest==0.1.0a18",
+    "bankai-random-forest==0.1.0a20",
 ]
 
 [project.urls]
@@ -52,4 +52,4 @@ pythonpath = ["."]
 
 # Immutable development dependency until alpha16 is published first.
 [tool.uv.sources]
-bankai-random-forest = { git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "22f9a4c81ec1c437d8e85fb3648e5f6202a27d67" }
+bankai-random-forest = { git = "https://github.com/breno-jesus-fernandes/bankai-random-forest.git", rev = "161fc85c4334d0880a42f10ba56f46c66b00db59" }
